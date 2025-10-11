@@ -3,7 +3,30 @@ from dataclasses import dataclass
 
 from direct.showbase.ShowBase import ShowBase
 from direct.showbase.ShowBaseGlobal import globalClock
-from panda3d.core import loadPrcFileData
+from panda3d.core import loadPrcFileData, LPoint3
+
+
+# Utility: recenter model so bounds-relative point 'rel' becomes origin
+def bake_pivot_to_rel(model, rel=(0.5, 0.5, 0.5)):
+    parent = model.getParent()
+    tmp = parent.attachNewNode('tmp-pivot')
+    model.wrtReparentTo(tmp)
+
+    a, b = model.getTightBounds(tmp)
+    if not a or not b:
+        model.wrtReparentTo(parent)
+        tmp.removeNode()
+        return
+
+    p = LPoint3(
+        a.x + (b.x - a.x) * rel[0],
+        a.y + (b.y - a.y) * rel[1],
+        a.z + (b.z - a.z) * rel[2],
+    )
+    model.setPos(tmp, -p)
+    tmp.flattenStrong()
+    model.wrtReparentTo(parent)
+    tmp.removeNode()
 
 
 @dataclass
@@ -105,23 +128,31 @@ class CartPoleRenderer(ShowBase):
         self.cart_np.reparentTo(self.render)
         self.cart_np.setColor(0.6, 0.8, 1.0, 1.0)
         self.cart_np.setScale(*self.cfg.cart_size)
+        self.cart_np.setTextureOff(1)
+        bake_pivot_to_rel(self.cart_np, (0.5, 0.5, 0.5))
 
-        # Hinge at top of the cart (local Z)
+        # Hinge from the side of the cart
         self.hinge_np = self.cart_np.attachNewNode('hinge')
-        self.hinge_np.setPos(0.0, 0.0, self.cfg.cart_size[2] * 0.5)
+        self.hinge_np.setPos(0.0,
+        -0.5 *(self.cfg.cart_size[1] + self.cfg.pole_size[1]),
+        0.0)
 
         # Pole (child of hinge). Translate up by half its length so base sits on hinge
         self.pole_np = self.loader.loadModel('models/box')
         self.pole_np.reparentTo(self.hinge_np)
         self.pole_np.setColor(1.0, 0.7, 0.2, 1.0)
         self.pole_np.setScale(*self.cfg.pole_size)
-        self.pole_np.setPos(0.0, 0.0, self.cfg.pole_size[2] * 0.5)
+        self.pole_np.setTextureOff(1)
+        bake_pivot_to_rel(self.pole_np, (0.5, 0.5, 0.5))
+        self.pole_np.setPos(0.0, 0.0, self.cfg.pole_size[2] * 0.45) # middle of the hinge is near the base center
 
         # Rail (visual reference)
         self.rail_np = self.loader.loadModel('models/box')
         self.rail_np.reparentTo(self.render)
         self.rail_np.setColor(0.2, 0.2, 0.2, 1.0)
         self.rail_np.setScale(6.0, 0.05, 0.05)
+        self.rail_np.setTextureOff(1)
+        bake_pivot_to_rel(self.rail_np, (0.5, 0.5, 0.5))
         self.rail_np.setPos(0.0, 0.0, 0.0)
 
         # Camera initial placement
@@ -156,7 +187,7 @@ class CartPoleRenderer(ShowBase):
         # Cart translation along X
         self.cart_np.setPos(self.logic.x, 0.0, 0.0)
         # Pole rotation about hinge around world Y (cart local Y)
-        self.hinge_np.setHpr(0.0, math.degrees(self.logic.theta), 0.0)
+        self.hinge_np.setHpr(0.0, 0.0, math.degrees(self.logic.theta))
 
     def _update(self, task):
         # Fixed-step substepping for stability
