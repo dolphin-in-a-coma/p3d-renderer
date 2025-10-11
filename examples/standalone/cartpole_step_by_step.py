@@ -117,6 +117,8 @@ class CarPoleLogic:
             return True
         return False
 
+    def compute_reward(self) -> float:
+        return 0.0 if self.should_reset() else 1.0
 
 class CartPoleRenderer(ShowBase):
     def __init__(self, cfg: CartPoleConfig, logic: CarPoleLogic):
