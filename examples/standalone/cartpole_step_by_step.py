@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from direct.showbase.ShowBase import ShowBase
 from direct.showbase.ShowBaseGlobal import globalClock
-from panda3d.core import loadPrcFileData, LPoint3
+from panda3d.core import loadPrcFileData, LPoint3, AmbientLight, DirectionalLight, Vec3
 
 
 # Utility: recenter model so bounds-relative point 'rel' becomes origin
@@ -157,6 +157,20 @@ class CartPoleRenderer(ShowBase):
 
         # Camera initial placement
         self._update_camera()
+
+        self._add_lights()
+
+    def _add_lights(self):
+        alight = AmbientLight('ambient')
+        alight.setColor((0.25, 0.25, 0.28, 1.0))
+        alnp = self.render.attachNewNode(alight)
+        self.render.setLight(alnp)
+
+        dlight = DirectionalLight('sun')
+        dlight.setColor((0.95, 0.95, 0.95, 1.0))
+        dlnp = self.render.attachNewNode(dlight)
+        dlnp.lookAt(Vec3(-0.5, -1.0, -1.5))
+        self.render.setLight(dlnp)
 
     def _on_key(self, which: str, down: bool):
         if which == 'left':
