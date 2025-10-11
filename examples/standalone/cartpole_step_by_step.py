@@ -32,8 +32,8 @@ def bake_pivot_to_rel(model, rel=(0.5, 0.5, 0.5)):
 @dataclass
 class CartPoleConfig:
     # Window / context
-    width: int = 640
-    height: int = 480
+    width: int = 640 // 4
+    height: int = 640 // 4
     show_fps: bool = True
 
     # Physics
@@ -51,9 +51,8 @@ class CartPoleConfig:
     pole_size: tuple[float, float, float] = (0.1, 0.1, 2.0)
 
     # Camera follow
-    cam_left_angle_deg: float = 30.0
-    cam_distance: float = 6.0
-    cam_height: float = 1.8
+    cam_position: tuple[float, float, float] = (-7, -12.0, 2.0)
+    cam_look_at: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 class CarPoleLogic:
@@ -107,6 +106,8 @@ class CartPoleRenderer(ShowBase):
 
         self.cfg = cfg
         self.logic = logic
+
+        self.disableMouse() # allows for static camera
 
         # Input
         self._key_left = False
@@ -187,15 +188,8 @@ class CartPoleRenderer(ShowBase):
         self.logic.set_force(f)
 
     def _update_camera(self):
-        # Follow the cart from a fixed left angle
-        ang = math.radians(self.cfg.cam_left_angle_deg)
-        offset_x = -math.sin(ang) * self.cfg.cam_distance
-        offset_y = -math.cos(ang) * self.cfg.cam_distance
-        target_x = self.logic.x
-        target_y = 0.0
-        target_z = 0.0
-        self.camera.setPos(target_x + offset_x, target_y + offset_y, target_z + self.cfg.cam_height)
-        self.camera.lookAt(target_x, target_y, target_z + self.cfg.cart_size[2] * 0.5)
+        self.camera.setPos(*self.cfg.cam_position)
+        self.camera.lookAt(self.cfg.cam_look_at)
 
     def _update_transforms(self):
         # Cart translation along X
@@ -213,7 +207,6 @@ class CartPoleRenderer(ShowBase):
             self.logic.step(sub_dt)
 
         self._update_transforms()
-        self._update_camera()
         return task.cont
 
 
@@ -222,5 +215,3 @@ if __name__ == '__main__':
     logic = CarPoleLogic(cfg)
     app = CartPoleRenderer(cfg, logic)
     app.run()
-
-
