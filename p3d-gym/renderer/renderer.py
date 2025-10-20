@@ -218,8 +218,8 @@ class P3DRenderer(ShowBase):
         # self._warmup()
                     
         # Optional GPU grabber (CuPy + CUDA)
-        if getattr(self, 'offscreen_tex', None) is None:
-            self._setup_offscreen_rt()
+        # if getattr(self, 'offscreen_tex', None) is None:
+        #     self._setup_offscreen_rt()
 
         print("GPU_AVAILABLE:", GPU_AVAILABLE)
         print("cuda_gl_interop:", self.cfg.cuda_gl_interop)
