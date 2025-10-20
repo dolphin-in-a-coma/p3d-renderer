@@ -10,7 +10,7 @@ from typing import Iterable
 
 @dataclass
 class P3DConfig:
-    offscreen: bool = False
+    offscreen: bool = True
 
     num_scenes: int | None = None
     tiles: tuple[int, int] | int | None = None
