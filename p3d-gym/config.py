@@ -7,6 +7,7 @@ from dataclasses import dataclass, asdict
 import math
 from typing import Iterable
 
+import torch
 
 @dataclass
 class P3DConfig:
@@ -34,12 +35,13 @@ class P3DConfig:
 
     render_mode: str = 'rgb_array'
     dt: float = 1/60
-    warm_up_steps: int = 5
+    warmup_steps: int = 5
 
     report_fps: bool = True
     report_fps_interval: float = 1.0
 
     manual_camera_control: bool = False
+    cuda_gl_interop: bool = True
 
     def process_resolution(self) -> None:
 
@@ -111,8 +113,22 @@ class P3DConfig:
     def process_device(self) -> None:
         if self.device is not None and self.device not in ['cpu', 'cuda', 'mps']:
             raise ValueError(f"Invalid device: {self.device}")
-        # Placeholder to keep CPU for now; extend with torch checks if needed.
-        self.device = 'cpu'
+
+        # self.device = 'cpu' # HACK: remove
+
+        if self.device is None:
+            if torch.cuda.is_available():
+                self.device = 'cuda'
+            elif torch.backends.mps.is_available():
+                self.device = 'mps'
+            else:
+                self.device = 'cpu'
+        
+        if self.device == 'cuda' and not torch.cuda.is_available():
+            raise RuntimeError("device is set to CUDA but CUDA is not available")
+        elif self.device == 'mps' and not torch.backends.mps.is_available():
+            raise RuntimeError("device is set to MPS but MPS is not available")
+    
 
     def __post_init__(self) -> None:
         self.process_resolution()

@@ -1,16 +1,21 @@
+import math
+import re
 from turtle import update
 from typing import Literal
 import numpy as np
+import torch
 
 from direct.showbase.ShowBase import ShowBase
-from panda3d.core import loadPrcFileData
+from panda3d.core import loadPrcFileData, Texture
 from direct.task import Task
 from direct.showbase.ShowBaseGlobal import globalClock
+
 
 
 from .node import P3DNode
 from .camera import P3DCam
 from .light import P3DLight
+from .frame_grabber import GPUFrameGrabber, CPUFrameGrabber, GPU_AVAILABLE
 from ..config import P3DConfig
 
 
@@ -39,6 +44,17 @@ class P3DRenderer(ShowBase):
 
         if self.cfg.manual_camera_control:
             self.enable_camera_control()
+
+        # If running offscreen, disable the default main window's drawing to avoid extra work in PStats
+        if self.cfg.offscreen and self.win is not None:
+            try:
+                for dr in list(self.win.getDisplayRegions()):
+                    dr.setActive(False)
+                self.win.setActive(False)
+            except Exception:
+                pass
+
+        self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init_frame_grabber_once')
 
     # --- Node helpers (mirroring P3DScene) ---
     def add_node(self,
@@ -147,3 +163,98 @@ class P3DRenderer(ShowBase):
             self.win.movePointer(0, self.win.getXSize() // 2, self.win.getYSize() // 2)
 
         return task.cont
+
+    def _setup_offscreen_rt(self):
+        # Create an offscreen buffer sized to the tiled grid (cols x rows)
+        cols = self.cfg.tiles[0]
+        rows = self.cfg.tiles[1]
+        tile_w = self.cfg.tile_resolution[0]
+        tile_h = self.cfg.tile_resolution[1]
+        w = max(1, cols * tile_w)
+        h = max(1, rows * tile_h)
+        self.offscreen_buffer = self.win.makeTextureBuffer('p3d-screen-rt', w, h)
+        self.offscreen_tex = self.offscreen_buffer.getTexture()
+        if self.offscreen_tex is not None:
+            self.offscreen_tex.setKeepRamImage(True)
+            self.offscreen_tex.setCompression(Texture.CMOff)
+
+    def _warmup(self):
+        # TODO: check if this is needed
+        for _ in range(self.cfg.warmup_steps):
+            self.taskMgr.step()
+
+    def _init_frame_grabber_once(self, task):
+
+                    
+        # Optional GPU grabber (CuPy + CUDA)
+        if getattr(self, 'offscreen_tex', None) is None:
+            self._setup_offscreen_rt()
+
+        print("GPU_AVAILABLE:", GPU_AVAILABLE)
+        print("cuda_gl_interop:", self.cfg.cuda_gl_interop)
+        print("device:", self.cfg.device)
+    
+        self._frame_grabber: GPUFrameGrabber | CPUFrameGrabber | None = None
+        if GPU_AVAILABLE and self.cfg.cuda_gl_interop and self.cfg.device == 'cuda':
+            try:
+                self._frame_grabber = GPUFrameGrabber(self, self.offscreen_tex)
+                print("GPU grabber initialized")
+            except Exception as e:
+                raise e # HACK: remove
+                # self._gpu_grabber = None
+    
+        # Always have a CPU fallback grabber available
+        try:
+            self._frame_grabber = CPUFrameGrabber(self, getattr(self, 'offscreen_tex', None))
+        except Exception:
+            self._frame_grabber = None
+        print("Frame grabber initialized:", self._frame_grabber)
+        return task.done
+
+    def grab_pixels(self):
+        # Read pixels from the offscreen texture; rendering happens via taskMgr
+        # Prefer GPU interop if available (returns torch CUDA tensor when obs_on_gpu=True)
+        if getattr(self, '_frame_grabber', None) is None:
+            self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init_frame_grabber_once')
+            return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8, device=self.cfg.device)
+        try:
+            frame = self._frame_grabber.grab()  # torch.uint8 [H,W,4] on CUDA
+            frame = frame[..., :self.cfg.num_channels]
+            return frame
+        except Exception as e:
+            raise e
+            # return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8, device=self.cfg.device)
+
+        # # CPU path: Read pixels from the offscreen texture (uint8 HxWx3) -> torch CPU tensor
+        # tex = getattr(self, 'offscreen_tex', None)
+        # if tex is None:
+        #     import torch as _torch
+        #     return _torch.zeros((int(self.cfg.height), int(self.cfg.width), 3), dtype=_torch.uint8)
+        # # Pull latest GPU texture into RAM on every read
+        # try:
+        #     self.graphicsEngine.extractTextureData(tex, self.win.getGsg())
+        # except Exception:
+        #     pass
+        # # Determine actual texture size
+        # w = int(tex.getXSize()) or int(self.cfg.width)
+        # h = int(tex.getYSize()) or int(self.cfg.height)
+        # # Fetch raw bytes
+        # try:
+        #     data = tex.getRamImageAs('RGB')
+        # except Exception:
+        #     data = tex.getRamImage()
+        # arr = np.frombuffer(data, dtype=np.uint8)
+        # num_pixels = max(1, w * h)
+        # channels = arr.size // num_pixels if num_pixels else 0
+        # if channels and channels != 3:
+        #     arr = arr.reshape((h, w, channels))[..., :3]
+        # else:
+        #     arr = arr.reshape((h, w, 3)) if arr.size >= w * h * 3 else np.zeros((h, w, 3), dtype=np.uint8)
+        # # Flip vertically, ensure contiguous, and convert to torch CPU tensor
+        # arr = np.flipud(arr).copy()
+        # import torch as _torch
+        # return _torch.from_numpy(arr)
+    
+    def step_and_grab(self):
+        self.taskMgr.step()
+        return self.grab_pixels()

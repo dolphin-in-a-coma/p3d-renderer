@@ -19,7 +19,7 @@ class Demo(P3DRenderer):
     def __init__(self):
         num_scenes = 128
         instances_per_scene = 3
-        super().__init__(num_scenes=num_scenes)
+        super().__init__(num_scenes=num_scenes, offscreen=False)
         self.cam.setPos(0, -50, 10)
         self.cam.lookAt(0, 0, 0)
         self.disableMouse()
@@ -110,4 +110,27 @@ class Demo(P3DRenderer):
 
 if __name__ == '__main__':
     app = Demo()
-    app.run()
+    num_steps = 100
+    plot_every = 10
+    imgs = []
+    for i in range(num_steps):
+        #img = app.taskMgr.step()
+        print("stepping...", i)
+        img = app.step_and_grab()
+        if i % plot_every == 0:
+            imgs.append(img)
+        # print(img.shape)
+
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 10))
+    # for i, img in enumerate(imgs):
+    #     plt.subplot(10, 10, i + 1)
+    #     plt.imshow(img.cpu())
+    #     plt.axis('off')
+
+    plt.imshow(img.cpu())
+
+
+    plt.savefig('imgs.png')
+    plt.show()
+    plt.close()
