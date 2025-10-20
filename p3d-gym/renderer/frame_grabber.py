@@ -122,8 +122,17 @@ class CPUFrameGrabber(BaseFrameGrabber):
         tex = self.tex
         # print("tex:", tex)
         if tex is None:
-            w = max(1, int(getattr(self.base, "cfg", None).width) if getattr(self.base, "cfg", None) else 1)
-            h = max(1, int(getattr(self.base, "cfg", None).height) if getattr(self.base, "cfg", None) else 1)
+            # Use offscreen buffer size if available, otherwise fallback to window size
+            try:
+                if hasattr(self.base, 'offscreen_buffer') and self.base.offscreen_buffer is not None:
+                    w = max(1, int(self.base.offscreen_buffer.getXSize()))
+                    h = max(1, int(self.base.offscreen_buffer.getYSize()))
+                else:
+                    w = max(1, int(self.base.win.getXSize()))
+                    h = max(1, int(self.base.win.getYSize()))
+            except Exception:
+                w = max(1, int(self.base.win.getXSize()))
+                h = max(1, int(self.base.win.getYSize()))
             return torch.zeros((h, w, 3), dtype=torch.uint8)
 
         # Pull latest GPU texture into RAM on every read
@@ -133,8 +142,8 @@ class CPUFrameGrabber(BaseFrameGrabber):
             pass
 
         # Determine actual texture size
-        w = int(tex.getXSize()) or (int(getattr(self.base, "cfg", None).width) if getattr(self.base, "cfg", None) else 1)
-        h = int(tex.getYSize()) or (int(getattr(self.base, "cfg", None).height) if getattr(self.base, "cfg", None) else 1)
+        w = int(tex.getXSize()) or (int(self.base.offscreen_buffer.getXSize()) if hasattr(self.base, 'offscreen_buffer') and self.base.offscreen_buffer is not None else int(self.base.win.getXSize()))
+        h = int(tex.getYSize()) or (int(self.base.offscreen_buffer.getYSize()) if hasattr(self.base, 'offscreen_buffer') and self.base.offscreen_buffer is not None else int(self.base.win.getYSize()))
 
         # Fetch raw bytes
         try:

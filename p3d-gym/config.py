@@ -120,7 +120,7 @@ class P3DConfig:
             if torch.cuda.is_available():
                 self.device = 'cuda'
             elif torch.backends.mps.is_available():
-                self.device = 'mps'
+                self.device = 'cpu' # HACK:
             else:
                 self.device = 'cpu'
         

@@ -400,7 +400,10 @@ class P3DCam(P3DShaderContext):
                 self._upload_viewproj(VP)
             # Keep screenSize current
             try:
-                sx, sy = float(self.base.win.getXSize()), float(self.base.win.getYSize())
+                if hasattr(self.base, 'offscreen_buffer') and self.base.offscreen_buffer is not None:
+                    sx, sy = float(self.base.offscreen_buffer.getXSize()), float(self.base.offscreen_buffer.getYSize())
+                else:
+                    sx, sy = float(self.base.win.getXSize()), float(self.base.win.getYSize())
                 # Broadcast to all registered nodes
                 self._set_shader_input('screenSize', (sx, sy))
             except Exception:

@@ -16,7 +16,18 @@ from .node import P3DNode
 from .camera import P3DCam
 from .light import P3DLight
 from .frame_grabber import GPUFrameGrabber, CPUFrameGrabber, GPU_AVAILABLE
-from ..config import P3DConfig
+# Support both package and script-style imports
+try:
+    from ..config import P3DConfig  # when imported as part of the package
+except Exception:
+    try:
+        # when run with cwd at the package root (so `config.py` is top-level)
+        from config import P3DConfig
+    except Exception:
+        # final fallback: add parent directory of this file to sys.path
+        import os, sys
+        sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+        from config import P3DConfig
 
 
 class P3DRenderer(ShowBase):
@@ -178,6 +189,25 @@ class P3DRenderer(ShowBase):
             self.offscreen_tex.setKeepRamImage(True)
             self.offscreen_tex.setCompression(Texture.CMOff)
 
+        # Ensure there is a camera rendering into the offscreen buffer
+        # so the texture actually contains the rendered scene.
+        try:
+            if not hasattr(self, '_offscreen_cam_np') or self._offscreen_cam_np is None:
+                # Create a camera for the offscreen buffer that mirrors the base camera
+                self._offscreen_cam_np = self.makeCamera(self.offscreen_buffer)
+                # Inherit transforms from the main camera so poses match
+                try:
+                    self._offscreen_cam_np.reparentTo(self.cam)
+                except Exception:
+                    pass
+                # Match the main camera lens
+                try:
+                    self._offscreen_cam_np.node().setLens(self.cam.node().getLens())
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def _warmup(self):
         # TODO: check if this is needed
         for _ in range(self.cfg.warmup_steps):
@@ -214,14 +244,18 @@ class P3DRenderer(ShowBase):
     def grab_pixels(self):
         # Read pixels from the offscreen texture; rendering happens via taskMgr
         # Prefer GPU interop if available (returns torch CUDA tensor when obs_on_gpu=True)
-        if getattr(self, '_frame_grabber', None) is None:
-            self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init_frame_grabber_once')
-            return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8, device=self.cfg.device)
+        # if getattr(self, '_frame_grabber', None) is None:
+        #     self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init_frame_grabber_once')
+        #     return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8, device=self.cfg.device)
         try:
             frame = self._frame_grabber.grab()  # torch.uint8 [H,W,4] on CUDA
             frame = frame[..., :self.cfg.num_channels]
             return frame
         except Exception as e:
+            if getattr(self, '_frame_grabber', None) is None:
+                self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init_frame_grabber_once')
+                return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8, device=self.cfg.device)
+            
             raise e
             # return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8, device=self.cfg.device)
 
