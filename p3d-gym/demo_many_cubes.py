@@ -120,7 +120,7 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
     app = Demo()
     num_steps = 100000
-    plot_every = -1
+    plot_every = 100
     imgs = []
     for i in range(num_steps):
         #img = app.taskMgr.step()

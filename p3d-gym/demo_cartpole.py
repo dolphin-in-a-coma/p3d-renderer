@@ -75,6 +75,13 @@ class CartPoleDemo(P3DRenderer):
         # self.taskMgr.add(self.update_camera, 'update_camera')
         self.taskMgr.add(self.update_instances, 'update_instances')
 
+        self._setup_offscreen_rt()
+
+        self._warmup()
+
+        self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init-frame-grabber-once')
+        # TODO: move to some post-init method
+
     def update_instances(self, task):
         cart_x_delta = np.random.rand(self.num_scenes, self.cart.instances_per_scene, 1) * 0.1 - 0.05
         self.cart_x_pos = self.cart_x_pos + cart_x_delta
@@ -100,6 +107,15 @@ class CartPoleDemo(P3DRenderer):
 
 if __name__ == '__main__':
     app = CartPoleDemo()
-    app.run()
+    num_steps = 100000
+    plot_every = -1
+    imgs = []
+    for i in range(num_steps):
+        img = app.step_and_grab()
+        # if plot_every > 0 and i % plot_every == 0:
+        #     imgs.append(img)
+        # print(img.shape)
+
+    # app.run()
 
 

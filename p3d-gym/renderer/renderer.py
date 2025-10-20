@@ -230,6 +230,7 @@ class P3DRenderer(ShowBase):
             try:
                 self._frame_grabber = GPUFrameGrabber(self, self.offscreen_tex)
                 print("GPU grabber initialized")
+                return task.done
             except Exception as e:
                 raise e # HACK: remove
                 # self._gpu_grabber = None
