@@ -94,6 +94,13 @@ class P3DShaderContext(ABC):
 
     def _auto_screen_size_input(self) -> None:
         # TODO: change name to _auto_screen_size, and implement manual way to set screen size
+        # Prefer offscreen buffer size if present, otherwise fallback to main window
+        # try:
+        #     if hasattr(self.base, 'offscreen_buffer') and self.base.offscreen_buffer is not None:
+        #         sx, sy = float(self.base.offscreen_buffer.getXSize()), float(self.base.offscreen_buffer.getYSize())
+        #     else:
+        #         sx, sy = float(self.base.win.getXSize()), float(self.base.win.getYSize())
+        # except Exception:
         sx, sy = float(self.base.win.getXSize()), float(self.base.win.getYSize())
         self._set_shader_input('screenSize', (sx, sy))
 

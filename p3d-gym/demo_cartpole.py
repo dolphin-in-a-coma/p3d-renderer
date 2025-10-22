@@ -12,9 +12,15 @@ except ImportError:
 
 class CartPoleDemo(P3DRenderer):
     def __init__(self):
-        num_scenes = 1024 # ~1024 is the best on Mac, ~8k is the best on L4
+        num_scenes = 1024*4 # ~1024 is the best on Mac, ~8k is the best on L4
         instances_per_scene = 1
         super().__init__(tile_resolution=(64,64), num_scenes=num_scenes, offscreen=True)
+
+        gsg = self.win.getGsg()
+        print("Pipe:", self.win.pipe.getType().getName())      # expect: eglGraphicsPipe
+        print("Renderer:", gsg.getDriverRenderer())        # e.g., "NVIDIA L4/PCIe/SSE2"
+
+
         print(self.cfg)
         self.cam.setPos(0, -50, 10)
         self.cam.lookAt(0, 0, 0)
