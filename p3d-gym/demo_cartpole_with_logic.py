@@ -278,7 +278,7 @@ class CartPoleEnv(EnvBase):
 
 # Quick test
 if __name__ == "__main__":
-    num_scenes = 128 #256
+    num_scenes = 1024*8 #256
     tile_resolution = (64, 64)
     config = CartPoleConfig(num_scenes=num_scenes, tile_resolution=tile_resolution)
     # renderer = CartPoleRenderer(config)
@@ -290,7 +290,7 @@ if __name__ == "__main__":
     td = env.reset()
     total = 0.0
     tm_start = time.time()
-    steps = 100
+    steps = 1000
     total_frames = steps * num_scenes
 
     for t in range(steps):
