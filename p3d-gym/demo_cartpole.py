@@ -12,19 +12,15 @@ except ImportError:
 
 class CartPoleDemo(P3DRenderer):
     def __init__(self):
-        num_scenes = 1024*8 # ~1024 is the best on Mac, ~8k is the best on L4
+        num_scenes = 1024*16 # 1024*4 # 1024*4 # 1024*4 # ~1024 is the best on Mac, ~8k is the best on L4
+        tile_resolution = (64,64)
+        super().__init__(tile_resolution=tile_resolution, num_scenes=num_scenes, offscreen=True, interactive=False)
+
         instances_per_scene = 1
-        super().__init__(tile_resolution=(64,64), num_scenes=num_scenes, offscreen=True)
 
-        gsg = self.win.getGsg()
-        print("Pipe:", self.win.pipe.getType().getName())      # expect: eglGraphicsPipe
-        print("Renderer:", gsg.getDriverRenderer())        # e.g., "NVIDIA L4/PCIe/SSE2"
-
-
-        print(self.cfg)
-        self.cam.setPos(0, -50, 10)
-        self.cam.lookAt(0, 0, 0)
-        self.disableMouse()
+        # print(self.cfg)
+        # self.cam.setPos(0, -50, 10)
+        # self.cam.lookAt(0, 0, 0)
 
         self.rail_size = (6.0, 0.05, 0.05)
         self.cart_size = (1.2, 0.8, 0.5)
@@ -66,30 +62,38 @@ class CartPoleDemo(P3DRenderer):
         self.pole_theta = np.zeros_like(self.cart_x_pos)
 
         self.add_camera()
-        target_x = np.linspace(-self.rail_size[0] * 0.5 + self.cart_size[0] * 0.5, self.rail_size[0] * 0.5 - self.cart_size[0] * 0.5, num_scenes)
-        target_y = np.zeros_like(target_x)
-        target_z = np.zeros_like(target_x)
-        target_k3 = np.stack([target_x, target_y, target_z], axis=1).astype(np.float32)
-        self._p3d_cam.look_at(target_k3=target_k3)
-
-        # self._set_tiles_auto()
-        self.start()
 
         # Global lighting controller
         self.light = self.add_light(ambient=(0.2, 0.2, 0.25), dir_dir=(0.4, -0.6, -0.7), dir_col=(1,1,1), strength=1.0)
 
-        # self.taskMgr.add(self.update_camera, 'update_camera')
-        self.taskMgr.add(self.update_instances, 'update_instances')
+        if self.cfg.interactive:
+            self.init_interactive_controls()
 
-        self._setup_offscreen_rt()
+        # Setup environment
+        self.setup_environment()
 
-        self._warmup()
 
-        self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init-frame-grabber-once')
-        # TODO: move to some post-init method
+    def init_interactive_controls(self):
 
-    def update_instances(self, task):
-        cart_x_delta = np.random.rand(self.num_scenes, self.cart.instances_per_scene, 1) * 0.1 - 0.05
+        # Interactive controls for demo (arrow keys for cart, Q/E for pole tilt)
+        self._ctrl = { 'left': False, 'right': False, 'tilt_left': False, 'tilt_right': False }
+        def _set_ctrl(k, v):
+            self._ctrl[k] = v
+        self.accept('arrow_left', _set_ctrl, ['left', True])
+        self.accept('arrow_left-up', _set_ctrl, ['left', False])
+        self.accept('arrow_right', _set_ctrl, ['right', True])
+        self.accept('arrow_right-up', _set_ctrl, ['right', False])
+        self.accept('q', _set_ctrl, ['tilt_left', True])
+        self.accept('q-up', _set_ctrl, ['tilt_left', False])
+        self.accept('e', _set_ctrl, ['tilt_right', True])
+        self.accept('e-up', _set_ctrl, ['tilt_right', False])
+
+    def _step(self, cart_x_delta=None, pole_theta_delta=None):
+        if cart_x_delta is None:
+            cart_x_delta = np.zeros((self.num_scenes, self.cart.instances_per_scene, 1), dtype=np.float32)
+        else:
+            cart_x_delta = np.asarray(cart_x_delta, dtype=np.float32)
+
         self.cart_x_pos = self.cart_x_pos + cart_x_delta
         self.cart_x_pos = np.clip(self.cart_x_pos, 
                                  -self.rail_size[0] * 0.5 + self.cart_size[0] * 0.5,
@@ -99,30 +103,49 @@ class CartPoleDemo(P3DRenderer):
         self.cart.set_positions(self.cart_pos)
 
         self.pole_pos[:, :, 0:1] = self.cart_x_pos
-        self.pole.set_positions(self.pole_pos)
+        self.pole.set_positions(self.pole_pos, lazy=True) # don't upload immediately, wait for a not lazy step
 
-        pole_theta_delta = np.random.rand(self.num_scenes, self.pole.instances_per_scene, 1) * 0.1 - 0.05
+        if pole_theta_delta is None:
+            pole_theta_delta = np.zeros((self.num_scenes, self.pole.instances_per_scene, 1), dtype=np.float32)
+        else:
+            pole_theta_delta = np.asarray(pole_theta_delta, dtype=np.float32)
+
         self.pole_theta = self.pole_theta + pole_theta_delta
         self.pole_theta = np.clip(self.pole_theta, -np.pi, np.pi)
         self.pole_hpr[:, :, 1:2] = self.pole_theta
         self.pole.set_hprs(self.pole_hpr)
 
-        # print(self.cart_pos.shape)
-        return task.cont
-
+    def _interactive_step(self):
+        # Build deltas from current key states
+        move = (1.0 if self._ctrl['right'] else 0.0) - (1.0 if self._ctrl['left'] else 0.0)
+        tilt = (1.0 if self._ctrl['tilt_right'] else 0.0) - (1.0 if self._ctrl['tilt_left'] else 0.0)
+        # Scale by dt for smoothness
+        dx = 2.0 * float(self.cfg.dt) * move
+        dtheta = 1.5 * float(self.cfg.dt) * tilt
+        cart_x_delta = np.full((self.num_scenes, self.cart.instances_per_scene, 1), dx, dtype=np.float32)
+        pole_theta_delta = np.full((self.num_scenes, self.pole.instances_per_scene, 1), dtheta, dtype=np.float32)
+        self._step(cart_x_delta, pole_theta_delta)
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     app = CartPoleDemo()
     num_steps = 10000
-    plot_every = -1
+    plot_every = -100
     imgs = []
+
+    # num_deltas = 99
+    # cart_x_deltas_list = [(np.random.rand(app.num_scenes, app.cart.instances_per_scene, 1) * 0.1 - 0.05).astype(np.float32) for _ in range(num_deltas)]
+    # pole_theta_deltas_list = [(np.random.rand(app.num_scenes, app.pole.instances_per_scene, 1) * 0.1 - 0.05).astype(np.float32) for _ in range(num_deltas)]
     for i in range(num_steps):
-        img = app.step_and_grab()
+
+        # i_delta = i % num_deltas
+        # Example: create random deltas outside update_instances and apply per step
+        cart_x_delta = (np.random.rand(app.num_scenes, app.cart.instances_per_scene, 1) * 0.1 - 0.05).astype(np.float32)
+        pole_theta_delta = (np.random.rand(app.num_scenes, app.pole.instances_per_scene, 1) * 0.1 - 0.05).astype(np.float32)
+        img = app.step(cart_x_delta, pole_theta_delta)
         if plot_every > 0 and i % plot_every == 0:
             plt.figure(figsize=(10, 10))
             plt.imshow(img.cpu())
             plt.savefig(f'img_cartpole_{i}.png')
             plt.show()
             plt.close()
-

@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 from direct.showbase.ShowBase import ShowBase
-from panda3d.core import loadPrcFileData, Texture
+from panda3d.core import loadPrcFileData, Texture, MouseButton
 from direct.task import Task
 from direct.showbase.ShowBaseGlobal import globalClock
 
@@ -36,26 +36,38 @@ class P3DRenderer(ShowBase):
     apps can simply inherit from `P3DRenderer` and call helper methods directly.
     """
     def __init__(self, cfg: P3DConfig | dict | None = None, **cfg_overrides):
+        
         # Process config and apply PRC before initializing ShowBase
         self.cfg = P3DConfig.from_config(cfg, **cfg_overrides)
         prc_data = self.cfg.build_prc()
         loadPrcFileData('', prc_data)
-
         super().__init__()
+
+        # Print backend and configuration info
+        gsg = self.win.getGsg()
+        print("Pipe:", self.win.pipe.getType().getName()) # expect: eglGraphicsPipe
+        print("Renderer:", gsg.getDriverRenderer()) # e.g., "NVIDIA L4/PCIe/SSE2"
+        print("Config:", self.cfg)
+        print("Prc data:", prc_data)
+
         # Initial registries used by node/cam/light helpers
         self._p3d_nodes: list[P3DNode] = []
         self._p3d_cam: P3DCam | None = None
         self._p3d_light: P3DLight | None = None
         self.num_scenes = int(self.cfg.num_scenes)
 
+        # FPS reporting
         if self.cfg.report_fps:
             self._fps_last_print_time = 0.0 # TODO: move to state
             self.taskMgr.add(self.report_fps, 'report_fps')
 
+        self.disableMouse()
+        # Camera control with WASD and mouse 
         if self.cfg.manual_camera_control:
             self.enable_camera_control()
 
-        # If running offscreen, disable the default main window's drawing to avoid extra work in PStats
+        # For offscreen, disable the default main window's drawing
+        # TODO: double check this
         if self.cfg.offscreen and self.win is not None:
             try:
                 for dr in list(self.win.getDisplayRegions()):
@@ -64,45 +76,46 @@ class P3DRenderer(ShowBase):
             except Exception:
                 pass
 
-        # self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init_frame_grabber_once')
-
-    # --- Node helpers (mirroring P3DScene) ---
     def add_node(self,
             model_path: str | None,
             instances_per_scene: int,
-            shared_across_scenes: bool = False,
-            parent: 'P3DNode | None' = None,
-            name: str | None = None,
+            texture: Texture | str | bool | None = None,
             model_pivot_relative_point: tuple[float, float, float] | None = None,
             model_scale: tuple[float, float, float] = (10.0, 1.0, 1.0),
             positions: 'np.ndarray | None' = None,
             hprs: 'np.ndarray | None' = None,
             scales: 'np.ndarray | None' = None,
             colors: 'np.ndarray | None' = None,
-            backend: Literal[ "loop", "instanced"] = "instanced",) -> P3DNode:
-        node = P3DNode(self, model_path=model_path, num_scenes=self.num_scenes, instances_per_scene=int(instances_per_scene), shared_across_scenes=shared_across_scenes, parent=parent, name=name,
-                       model_pivot_relative_point=model_pivot_relative_point, model_scale=model_scale, positions=positions, hprs=hprs, scales=scales, colors=colors, backend=backend)
+            backend: Literal[ "loop", "instanced"] = "instanced",
+            shared_across_scenes: bool = False,
+            parent: 'P3DNode | None' = None,
+            name: str | None = None,
+            ) -> P3DNode:
+        node = P3DNode(self, model_path=model_path, 
+                        num_scenes=self.num_scenes,
+                        instances_per_scene=int(instances_per_scene), 
+                        texture=texture,
+                        model_pivot_relative_point=model_pivot_relative_point,
+                        model_scale=model_scale,
+                        positions=positions, 
+                        hprs=hprs,
+                        scales=scales,
+                        colors=colors,
+                        backend=backend,
+                        shared_across_scenes=shared_across_scenes,
+                        parent=parent,
+                        name=name)
         return node
-
-    # --- Camera helpers ---
-    @property
-    def cam_manager(self) -> P3DCam | None:
-        return getattr(self, '_p3d_cam', None)
 
     def add_camera(self) -> P3DCam:
         self._p3d_cam = P3DCam(self, num_scenes=self.cfg.num_scenes, cols=self.cfg.tiles[0], rows=self.cfg.tiles[1])
         return self._p3d_cam
 
+    # TODO: is this still of any use?
     def _set_tiles_auto(self) -> None:
         if self._p3d_cam is None:
             self.add_camera()
         self._p3d_cam._set_tiles()
-
-    def start(self) -> None:
-        # TODO: to remove
-        if self._p3d_cam is None:
-            self.add_camera()
-        self._p3d_cam.start_tasks(self.taskMgr)
 
     # --- Lighting helpers ---
     def add_light(self,
@@ -116,17 +129,15 @@ class P3DRenderer(ShowBase):
     def set_key(self, key, value):
         self.keys[key] = value
 
-
     def enable_camera_control(self):
         if self.cfg.offscreen:
             print('WARNING: Manual camera control is not possible in offscreen mode, disabling.')
             self.cfg.manual_camera_control = False
             return
 
-        self.taskMgr.add(self.update_camera, 'camera_control')
-
         self.keys = {
-            "w": False, "s": False, "a": False, "d": False
+            "w": False, "s": False, "a": False, "d": False,
+            "z": False, "x": False,
         }
         self.accept("w", self.set_key, ["w", True])
         self.accept("s", self.set_key, ["s", True])
@@ -136,7 +147,63 @@ class P3DRenderer(ShowBase):
         self.accept("s-up", self.set_key, ["s", False])
         self.accept("a-up", self.set_key, ["a", False])
         self.accept("d-up", self.set_key, ["d", False])
+        
+        # up/down movement of the camera
+        self.accept("z", self.set_key, ["z", True])
+        self.accept("x", self.set_key, ["x", True])
+        self.accept("z-up", self.set_key, ["z", False])
+        self.accept("x-up", self.set_key, ["x", False])
 
+        self._camera_speed = 25    
+
+        self._prev_mouse_x = 0
+        self._prev_mouse_y = 0
+        self._mouse_sensitivity = 0.01
+
+
+        self.taskMgr.add(self.update_camera, 'camera_control')
+
+    def update_camera(self, task):
+        dt = self.clock.get_dt()
+
+        position_k3 = self._p3d_cam.get_eye()
+        if self.keys["w"]:
+            position_k3[:, 1] += self._camera_speed * dt
+        if self.keys["s"]:
+            position_k3[:,1] -= self._camera_speed * dt
+        if self.keys["a"]:
+            position_k3[:,0] -= self._camera_speed * dt
+        if self.keys["d"]:
+            position_k3[:,0] += self._camera_speed * dt
+        if self.keys["z"]:
+            position_k3[:,2] += self._camera_speed * dt
+        if self.keys["x"]:
+            position_k3[:,2] -= self._camera_speed * dt
+        position_k3 = position_k3.reshape(-1, 3)
+        self._p3d_cam.set_eye(position_k3)
+
+        if self.mouseWatcherNode.hasMouse():
+            md = self.win.getPointer(0)
+            mouse_dx = md.getX() - self._prev_mouse_x
+            mouse_dy = md.getY() - self._prev_mouse_y
+            self._prev_mouse_x = md.getX()
+            self._prev_mouse_y = md.getY()
+            
+            # Only rotate camera while left mouse button is held
+            if self.mouseWatcherNode.is_button_down(MouseButton.one()):
+                fwd_k3 = self._p3d_cam.get_forward()
+                # TODO: implement with hpr
+                fwd_x, fwd_y, fwd_z = fwd_k3[:,0], fwd_k3[:,1], fwd_k3[:,2]
+                new_fwd = np.array([fwd_x + mouse_dx * self._mouse_sensitivity, 
+                fwd_y,
+                fwd_z + mouse_dy * self._mouse_sensitivity]).T
+                new_fwd = new_fwd
+                new_fwd = self._p3d_cam._normalize(new_fwd)
+                self._p3d_cam.set_forward(new_fwd)
+
+            # self.win.movePointer(0, int(self.win.getXSize() // 2), int(self.win.getYSize() // 2))
+
+        return task.cont
 
     def report_fps(self, task: Task) -> None:
         now = globalClock.getRealTime()
@@ -144,33 +211,6 @@ class P3DRenderer(ShowBase):
             self._fps_last_print_time = now
             fps = globalClock.getAverageFrameRate() * self.cfg.num_scenes
             print(f"FPS: {float(fps):.1f}")
-
-        return task.cont
-
-    def update_camera(self, task):
-        dt = self.clock.get_dt()
-        speed = 25
-
-        position_k3 = self._p3d_cam.get_eye()
-        if self.keys["w"]:
-            position_k3[:, 1] += speed * dt
-        if self.keys["s"]:
-            position_k3[:,1] -= speed * dt
-        if self.keys["a"]:
-            position_k3[:,0] -= speed * dt
-        if self.keys["d"]:
-            position_k3[:,0] += speed * dt
-        self._p3d_cam.set_eye(position_k3)
-
-        if self.mouseWatcherNode.hasMouse():
-            md = self.win.getPointer(0)
-            x = md.getX()
-            y = md.getY()
-            
-            fwd_k3 = self._p3d_cam.get_forward()
-            fwd_x, fwd_y, fwd_z = fwd_k3[:,0], fwd_k3[:,1], fwd_k3[:,2]
-
-            self.win.movePointer(0, self.win.getXSize() // 2, self.win.getYSize() // 2)
 
         return task.cont
 
@@ -256,40 +296,43 @@ class P3DRenderer(ShowBase):
             if getattr(self, '_frame_grabber', None) is None:
                 self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init_frame_grabber_once')
                 return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8, device=self.cfg.device)
-            
-            raise e
+            raise e # It should never happen
             # return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8, device=self.cfg.device)
-
-        # # CPU path: Read pixels from the offscreen texture (uint8 HxWx3) -> torch CPU tensor
-        # tex = getattr(self, 'offscreen_tex', None)
-        # if tex is None:
-        #     import torch as _torch
-        #     return _torch.zeros((int(self.cfg.height), int(self.cfg.width), 3), dtype=_torch.uint8)
-        # # Pull latest GPU texture into RAM on every read
-        # try:
-        #     self.graphicsEngine.extractTextureData(tex, self.win.getGsg())
-        # except Exception:
-        #     pass
-        # # Determine actual texture size
-        # w = int(tex.getXSize()) or int(self.cfg.width)
-        # h = int(tex.getYSize()) or int(self.cfg.height)
-        # # Fetch raw bytes
-        # try:
-        #     data = tex.getRamImageAs('RGB')
-        # except Exception:
-        #     data = tex.getRamImage()
-        # arr = np.frombuffer(data, dtype=np.uint8)
-        # num_pixels = max(1, w * h)
-        # channels = arr.size // num_pixels if num_pixels else 0
-        # if channels and channels != 3:
-        #     arr = arr.reshape((h, w, channels))[..., :3]
-        # else:
-        #     arr = arr.reshape((h, w, 3)) if arr.size >= w * h * 3 else np.zeros((h, w, 3), dtype=np.uint8)
-        # # Flip vertically, ensure contiguous, and convert to torch CPU tensor
-        # arr = np.flipud(arr).copy()
-        # import torch as _torch
-        # return _torch.from_numpy(arr)
     
-    def step_and_grab(self):
-        self.taskMgr.step()
-        return self.grab_pixels()
+    def _step(self, *args, **kwargs):
+        # Default no-op. Children override this to update scene state per step.
+        return None
+
+    def _interactive_step(self):
+        # Default: no-op. Children override to read inputs and call _step(...)
+        return None
+
+    def _interactive_step_with_task(self, task):
+        self._interactive_step() # TODO: consider whether dancing around .taskMgr is necessary
+        return task.cont
+
+    def step(self, *args, return_pixels: bool = True, **kwargs):
+        # In interactive mode, a task drives stepping. We only advance one frame here.
+        if getattr(self.cfg, 'interactive', False):
+            self.taskMgr.step()
+        else:
+            self._step(*args, **kwargs)
+            self.taskMgr.step()
+        if return_pixels:
+            return self.grab_pixels()
+
+    def __call__(self, *args, return_pixels: bool = True, **kwargs):
+        return self.step(*args, return_pixels=return_pixels, **kwargs)
+
+    def _init_frame_grabber(self):
+        self._setup_offscreen_rt()
+        self._warmup()
+        self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init-frame-grabber-once')
+
+    def setup_environment(self) -> None:
+
+        if self._p3d_cam is None:
+            self.add_camera() # TODO: consider removing this
+        if getattr(self.cfg, 'interactive', False):
+            self.taskMgr.add(self._interactive_step_with_task, 'p3d-interactive-step')
+        self._init_frame_grabber()
