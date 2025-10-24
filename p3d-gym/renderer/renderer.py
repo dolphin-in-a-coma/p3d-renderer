@@ -299,6 +299,21 @@ class P3DRenderer(ShowBase):
             raise e # It should never happen
             # return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8, device=self.cfg.device)
     
+    def _rearrange_img(self, img: torch.Tensor | np.ndarray) -> torch.Tensor:
+        if isinstance(img, np.ndarray):
+            img = torch.from_numpy(img).to(self.device)
+
+        # print(img)
+        # img: (R H)(CL W)CH
+        # print(img.shape)
+        img = img.permute(2, 0, 1) # -> CH(R H)(CL W)
+        # print(img.shape)
+        # img = img.contiguous() # seems to be unnecessary
+        img = img.view(self.cfg.num_channels, self.cfg.tiles[1], self.cfg.tile_resolution[1], self.cfg.tiles[0], self.cfg.tile_resolution[0]) # -> CH R H CL W
+        img = img.permute(1, 3, 0, 2, 4) # -> R CL CH H W
+        img = img.reshape(-1, self.cfg.num_channels, self.cfg.tile_resolution[1], self.cfg.tile_resolution[0]) # -> B CH H W
+        return img
+
     def _step(self, *args, **kwargs):
         # Default no-op. Children override this to update scene state per step.
         return None
@@ -319,7 +334,9 @@ class P3DRenderer(ShowBase):
             self._step(*args, **kwargs)
             self.taskMgr.step()
         if return_pixels:
-            return self.grab_pixels()
+            img = self.grab_pixels()
+            return self._rearrange_img(img)
+
 
     def __call__(self, *args, return_pixels: bool = True, **kwargs):
         return self.step(*args, return_pixels=return_pixels, **kwargs)
