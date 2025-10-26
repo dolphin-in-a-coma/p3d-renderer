@@ -1,5 +1,5 @@
 import math
-import numpy as np
+import torch
 
 from typing import Literal
 
@@ -36,26 +36,26 @@ class P3DCam(P3DShaderContext):
         # Persistent camera state and VP cache
         # TODO: check these guys
         
-        self.eye_k3: np.ndarray = np.zeros((self.num_scenes, 3), np.float32)
-        self.forward_k3: np.ndarray = np.zeros((self.num_scenes, 3), np.float32)
-        self.up_k3: np.ndarray = np.zeros((self.num_scenes, 3), np.float32)
+        self.eye_k3: torch.Tensor = torch.zeros((self.num_scenes, 3), dtype=torch.float32)
+        self.forward_k3: torch.Tensor = torch.zeros((self.num_scenes, 3), dtype=torch.float32)
+        self.up_k3: torch.Tensor = torch.zeros((self.num_scenes, 3), dtype=torch.float32)
 
-        self.hpr_k3: np.ndarray = np.zeros((self.num_scenes, 3), np.float32) # ?
-        self.target_k3: np.ndarray = np.zeros((self.num_scenes, 3), np.float32) # ?
+        self.hpr_k3: torch.Tensor = torch.zeros((self.num_scenes, 3), dtype=torch.float32)
+        self.target_k3: torch.Tensor = torch.zeros((self.num_scenes, 3), dtype=torch.float32)
         
-        self.V_k44: np.ndarray = np.eye(4, 4, dtype=np.float32)[None, :, :].repeat(self.num_scenes, axis=0) # ?
+        self.V_k44: torch.Tensor = torch.eye(4, dtype=torch.float32)[None, :, :].repeat(self.num_scenes, 1, 1)
         # self.P_k44: np.ndarray = np.zeros((self.num_scenes, 4, 4), np.float32) # ?
 
-        self.VP_k44: np.ndarray = np.zeros((self.num_scenes, 4, 4), np.float32)
+        self.VP_k44: torch.Tensor = torch.zeros((self.num_scenes, 4, 4), dtype=torch.float32)
 
         # Projection cache
         self._proj_cache_key: tuple[float, float, float, float] | None = None
-        self._proj_cache: np.ndarray | None = None
-        self.P_k44: np.ndarray = self._get_projection()
+        self._proj_cache: torch.Tensor | None = None
+        self.P_k44: torch.Tensor = self._get_projection()
 
-        self._update_view(eye_k3=np.array([ 0., -12., 0.  ], np.float32), 
-            forward_k3=np.array([0.0,  1. , 0.], np.float32),
-            up_k3=np.array([0.0,  0.0,  1.], np.float32))
+        self._update_view(eye_k3=torch.tensor([ 0., -12., 0.  ], dtype=torch.float32), 
+            forward_k3=torch.tensor([0.0,  1. , 0.], dtype=torch.float32),
+            up_k3=torch.tensor([0.0,  0.0,  1.], dtype=torch.float32))
 
         self._update_vp()
 
@@ -83,11 +83,12 @@ class P3DCam(P3DShaderContext):
         self._set_shader_input('K', self.num_scenes)
         self._auto_screen_size_input()
 
-    def _set_tiles_from_array(self, tiles_k4: np.ndarray) -> None:
+    def _set_tiles_from_array(self, tiles_k4: torch.Tensor) -> None:
         self.rows = tiles_k4.shape[0]
         self.cols = tiles_k4.shape[1]
         self.num_scenes = self.cols * self.rows
-        self.tilebuf.set_ram_image(tiles_k4.astype(np.float32, copy=False).tobytes(order='C'))
+        tiles_k4 = tiles_k4.to(torch.float32).contiguous().cpu()
+        self.tilebuf.set_ram_image(tiles_k4.numpy().tobytes(order='C'))
         # TODO: add tiling based on number rows and cols
 
     # def _set_tiles_from_rows_cols(self, rows: int | None = None, cols: int | None = None) -> None:
@@ -119,15 +120,19 @@ class P3DCam(P3DShaderContext):
         if self.num_scenes is None:
             self.num_scenes = self.cols * self.rows
         
-        tiles = np.zeros((self.num_scenes, 4), dtype=np.float32)
-        for i in range(self.num_scenes):
-            col = i % self.cols
-            row = i // self.cols
-            tiles[i] = [
-                col / self.cols, (col + 1) / self.cols,
-                1.0 - (row + 1) / self.rows, 1.0 - row / self.rows,
-            ]
-        self.tilebuf.set_ram_image(tiles.astype(np.float32, copy=False).tobytes(order='C'))
+        K = int(self.num_scenes)
+        idx = torch.arange(K, dtype=torch.float32)
+        cols = float(self.cols)
+        rows = float(self.rows)
+        col = torch.remainder(idx, cols)
+        row = torch.floor(idx / cols)
+        tiles = torch.stack([
+            col / cols,
+            (col + 1.0) / cols,
+            1.0 - (row + 1.0) / rows,
+            1.0 - row / rows,
+        ], dim=1).to(torch.float32)
+        self.tilebuf.set_ram_image(tiles.contiguous().cpu().numpy().tobytes(order='C'))
 
     # def _set_tiles_auto(self) -> None:
     #     # NOTE: this functional is repeated in config
@@ -138,10 +143,11 @@ class P3DCam(P3DShaderContext):
     #     print(self.cols, self.rows)
     #     self._set_tiles_from_rows_cols()
 
-    def _upload_viewproj(self, VP_k44: np.ndarray) -> None:
-        self.viewbuf.set_ram_image(type(self)._pack_columns(VP_k44).tobytes(order='C'))
+    def _upload_viewproj(self, VP_k44: torch.Tensor) -> None:
+        packed = type(self)._pack_columns(VP_k44).contiguous().cpu().numpy().tobytes(order='C')
+        self.viewbuf.set_ram_image(packed)
 
-    def _get_projection(self) -> np.ndarray:
+    def _get_projection(self) -> torch.Tensor:
         # TODO: change aspect given tiled rendering
         if self.fixed_projection and self._proj_cache is not None:
             return self._proj_cache
@@ -149,12 +155,12 @@ class P3DCam(P3DShaderContext):
         key = (float(self.fov_y_deg), float(self.z_near), float(self.z_far), float(aspect))
         if self._proj_cache_key != key or self._proj_cache is None:
             f = 1.0 / math.tan(math.radians(self.fov_y_deg) * 0.5)
-            P = np.zeros((4, 4), np.float32)
-            P[0, 0] = f / aspect
-            P[1, 1] = f
-            P[2, 2] = (self.z_far + self.z_near) / (self.z_near - self.z_far)
-            P[2, 3] = (2.0 * self.z_far * self.z_near) / (self.z_near - self.z_far)
-            P[3, 2] = -1.0
+            P = torch.zeros((4, 4), dtype=torch.float32)
+            P[0, 0] = torch.tensor(f / aspect, dtype=torch.float32)
+            P[1, 1] = torch.tensor(f, dtype=torch.float32)
+            P[2, 2] = torch.tensor((self.z_far + self.z_near) / (self.z_near - self.z_far), dtype=torch.float32)
+            P[2, 3] = torch.tensor((2.0 * self.z_far * self.z_near) / (self.z_near - self.z_far), dtype=torch.float32)
+            P[3, 2] = torch.tensor(-1.0, dtype=torch.float32)
             self._proj_cache_key = key
             self._proj_cache = P
         return self._proj_cache
@@ -171,30 +177,30 @@ class P3DCam(P3DShaderContext):
         # Invalidate projection cache and re-upload with current VP
         self._proj_cache_key = None
         self._proj_cache = None
-        if self.VP_k44.size:
+        if self.VP_k44.numel() > 0:
             self._upload_viewproj(self.VP_k44)
 
-    def _ensure_kx3(self, arr: np.ndarray | list | tuple, name: str) -> np.ndarray:
-        a = np.asarray(arr, dtype=np.float32)
+    def _ensure_kx3(self, arr: torch.Tensor | list | tuple, name: str) -> torch.Tensor:
+        a = torch.as_tensor(arr, dtype=torch.float32)
         if a.ndim == 1:
-            a = a[None, :]
+            a = a.unsqueeze(0)
         if a.shape[-1] != 3:
-            raise ValueError(f"{name} must have shape (K,3) or (3,), got {a.shape}")
+            raise ValueError(f"{name} must have shape (K,3) or (3,), got {tuple(a.shape)}")
         if a.shape[0] == 1 and self.num_scenes > 1:
-            a = np.repeat(a, self.num_scenes, axis=0)
+            a = a.repeat(self.num_scenes, 1)
         if a.shape[0] != self.num_scenes:
             raise ValueError(f"{name} first dim must be K={self.num_scenes}, got {a.shape[0]}")
         return a
 
     @staticmethod
-    def _normalize(v: np.ndarray) -> np.ndarray:
-        n = np.linalg.norm(v, axis=-1, keepdims=True)
-        return v / np.where(n > 1e-8, n, 1.0)
+    def _normalize(v: torch.Tensor) -> torch.Tensor:
+        n = torch.linalg.norm(v, dim=-1, keepdim=True)
+        return v / n.clamp_min(1e-8)
     # TODO: move normalize to proper place
 
-    def _update_view(self, eye_k3: np.ndarray | None = None, 
-                    forward_k3: np.ndarray | None = None,
-                    up_k3: np.ndarray | None = None) -> np.ndarray:
+    def _update_view(self, eye_k3: torch.Tensor | None = None, 
+                    forward_k3: torch.Tensor | None = None,
+                    up_k3: torch.Tensor | None = None) -> torch.Tensor | None:
 
         basis_changed = (forward_k3 is not None) or (up_k3 is not None)
         eye_changed = (eye_k3 is not None)
@@ -213,8 +219,8 @@ class P3DCam(P3DShaderContext):
                 up_in = type(self)._normalize(up_k3)
             else:
                 up_in = self.V_k44[:, 1, 0:3]
-            s = type(self)._normalize(np.cross(f, up_in))
-            u = np.cross(s, f)
+            s = type(self)._normalize(torch.cross(f, up_in, dim=-1))
+            u = torch.cross(s, f, dim=-1)
 
             self.V_k44[:, 0, 0:3] = s
             self.V_k44[:, 1, 0:3] = u
@@ -229,49 +235,51 @@ class P3DCam(P3DShaderContext):
             if eye_changed: # NOTE: I don't use _ensure_kx3 here, maybe should?
                 eye_k3 = self._ensure_kx3(eye_k3, 'eye_k3')
                 self.eye_k3 = eye_k3
-            self.V_k44[:, 0, 3] = -np.einsum('ij,ij->i', s, self.eye_k3)
-            self.V_k44[:, 1, 3] = -np.einsum('ij,ij->i', u, self.eye_k3)
-            self.V_k44[:, 2, 3] =  np.einsum('ij,ij->i', f, self.eye_k3)
+            self.V_k44[:, 0, 3] = -torch.einsum('ij,ij->i', s, self.eye_k3)
+            self.V_k44[:, 1, 3] = -torch.einsum('ij,ij->i', u, self.eye_k3)
+            self.V_k44[:, 2, 3] =  torch.einsum('ij,ij->i', f, self.eye_k3)
 
 
     @staticmethod
-    def _fwd_up_from_hpr(hpr_k3: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _fwd_up_from_hpr(hpr_k3: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         R = P3DShaderContext._rotation_mats_from_hpr(hpr_k3)
-        fwd = np.einsum('bij,j->bi', R, np.array([0.0, 1.0, 0.0], np.float32))
-        up = np.einsum('bij,j->bi', R, np.array([0.0, 0.0, 1.0], np.float32))
+        unit_fwd = torch.tensor([0.0, 1.0, 0.0], dtype=torch.float32, device=R.device)
+        unit_up = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32, device=R.device)
+        fwd = torch.einsum('bij,j->bi', R, unit_fwd)
+        up = torch.einsum('bij,j->bi', R, unit_up)
         return fwd, up
 
     def _update_vp(self) -> None:
         # print(self.P_k44.shape, self.V_k44.shape)
-        VP = self.P_k44 @ self.V_k44
+        VP = torch.einsum('ij,bjk->bik', self.P_k44, self.V_k44)
 
         # print(self.V_k44[0])
 
         VP = VP.reshape(-1, 4, 4)
         # VP = np.repeat(VP, self.num_scenes, axis=0)
 
-        self.VP_k44 = VP.astype(np.float32, copy=False)
+        self.VP_k44 = VP.to(torch.float32)
         self._upload_viewproj(self.VP_k44)
 
-    def get_vp(self) -> np.ndarray:
-        return self.VP_k44.copy()
+    def get_vp(self) -> torch.Tensor:
+        return self.VP_k44.clone()
 
     # --- Simplified public API ---
-    def look_at(self, target_k3: np.ndarray | list | tuple,
+    def look_at(self, target_k3: torch.Tensor | list | tuple,
                 lazy: bool = False) -> None:
         fwd = self._fwd_from_lookat(target_k3)
         self._update_view(forward_k3=fwd)
         if not lazy:
             self._update_vp()
 
-    def set_positions(self, eye_k3: np.ndarray | list | tuple, keep_lookat: bool = False, lazy: bool = False) -> None:
+    def set_positions(self, eye_k3: torch.Tensor | list | tuple, keep_lookat: bool = False, lazy: bool = False) -> None:
         if keep_lookat:
             raise NotImplementedError('Target can\'t be reconsturcted from eye and forward, needs to be stored in memory then')
         else:
             self.set_eye(eye_k3, lazy=lazy)
 
-    def set_positions_and_lookat(self, eye_k3: np.ndarray | list | tuple, 
-                                 target_k3: np.ndarray | list | tuple, 
+    def set_positions_and_lookat(self, eye_k3: torch.Tensor | list | tuple, 
+                                 target_k3: torch.Tensor | list | tuple, 
                                  lazy: bool = False) -> None:
 
         eye_k3 = self._ensure_kx3(eye_k3, 'eye_k3')
@@ -282,12 +290,14 @@ class P3DCam(P3DShaderContext):
         if not lazy:
             self._update_vp()
 
-    def _fwd_from_lookat(self, target_k3: np.ndarray | list | tuple, eye_k3: np.ndarray | list | tuple | None = None) -> np.ndarray:
-        eye_k3 = eye_k3 if eye_k3 is not None else self.eye_k3
-        fwd = target_k3 - eye_k3
+    def _fwd_from_lookat(self, target_k3: torch.Tensor | list | tuple, eye_k3: torch.Tensor | list | tuple | None = None) -> torch.Tensor:
+        eye = eye_k3 if eye_k3 is not None else self.eye_k3
+        target = self._ensure_kx3(target_k3, 'target_k3')
+        eye = self._ensure_kx3(eye, 'eye_k3')
+        fwd = target - eye
         return fwd
 
-    def set_hprs(self, hpr_k3: np.ndarray | list | tuple, lazy: bool = False) -> None:
+    def set_hprs(self, hpr_k3: torch.Tensor | list | tuple, lazy: bool = False) -> None:
         hpr = self._ensure_kx3(hpr_k3, 'hpr_k3')
         fwd, up = self._fwd_up_from_hpr(hpr)
         self._update_view(forward_k3=fwd, up_k3=up)
@@ -295,45 +305,45 @@ class P3DCam(P3DShaderContext):
             self._update_vp()
 
     # --- Axis setters/getters (use _update_view) ---
-    def set_eye(self, eye_k3: np.ndarray | list | tuple, lazy: bool = False) -> None:
+    def set_eye(self, eye_k3: torch.Tensor | list | tuple, lazy: bool = False) -> None:
         self._update_view(eye_k3=eye_k3)
         if not lazy:
             self._update_vp()
 
-    def set_forward(self, forward_k3: np.ndarray | list | tuple, lazy: bool = False) -> None:
+    def set_forward(self, forward_k3: torch.Tensor | list | tuple, lazy: bool = False) -> None:
         self._update_view(forward_k3=forward_k3)
         if not lazy:
             self._update_vp()
 
-    def set_up(self, up_k3: np.ndarray | list | tuple, lazy: bool = False) -> None:
+    def set_up(self, up_k3: torch.Tensor | list | tuple, lazy: bool = False) -> None:
         self._update_view(up_k3=up_k3)
         if not lazy:
             self._update_vp()
 
-    def set_right(self, right_k3: np.ndarray | list | tuple, lazy: bool = False) -> None:
+    def set_right(self, right_k3: torch.Tensor | list | tuple, lazy: bool = False) -> None:
         # Keep current forward, adjust up so that resulting right matches desired
         right_k3 = type(self)._normalize(right_k3)
         f = -self.V_k44[:, 2, 0:3]
-        u = np.cross(right_k3, f)
+        u = torch.cross(right_k3, f, dim=-1)
         # Delegate to _update_view with fixed forward and derived up
         self._update_view(forward_k3=f, up_k3=u)
         if not lazy:
             self._update_vp()
 
-    def get_eye(self) -> np.ndarray:
-        return self.eye_k3.copy()
+    def get_eye(self) -> torch.Tensor:
+        return self.eye_k3.clone()
 
-    def get_forward(self) -> np.ndarray:
+    def get_forward(self) -> torch.Tensor:
         # Prefer cached forward if available; derive from V otherwise
-        return (-self.V_k44[:, 2, 0:3]).copy()
+        return (-self.V_k44[:, 2, 0:3]).clone()
 
-    def get_up(self) -> np.ndarray:
-        return self.V_k44[:, 1, 0:3].copy()
+    def get_up(self) -> torch.Tensor:
+        return self.V_k44[:, 1, 0:3].clone()
 
-    def get_right(self) -> np.ndarray:
-        return self.V_k44[:, 0, 0:3].copy()
+    def get_right(self) -> torch.Tensor:
+        return self.V_k44[:, 0, 0:3].clone()
 
-    def _compute_vp_from_camera(self) -> np.ndarray:
+    def _compute_vp_from_camera(self) -> torch.Tensor:
         import math as _math
         from panda3d.core import Vec3
         # Camera world pose
@@ -343,35 +353,35 @@ class P3DCam(P3DShaderContext):
         upw = q.xform(Vec3(0, 0, 1))
         target = eye + fwd
 
-        def _normalize(v: np.ndarray) -> np.ndarray:
-            n = np.linalg.norm(v)
-            return v / (n if n > 1e-8 else 1.0)
+        def _normalize(v: torch.Tensor) -> torch.Tensor:
+            n = torch.linalg.norm(v)
+            return v / (n if float(n) > 1e-8 else 1.0)
 
-        eye_np = np.array([eye.x, eye.y, eye.z], dtype=np.float32)
-        f_np = _normalize(np.array([target.x, target.y, target.z], np.float32) - eye_np)
-        up_np = _normalize(np.array([upw.x, upw.y, upw.z], np.float32))
-        s = _normalize(np.cross(f_np, up_np))
-        u = np.cross(s, f_np)
+        eye_t = torch.tensor([eye.x, eye.y, eye.z], dtype=torch.float32)
+        f_t = _normalize(torch.tensor([target.x, target.y, target.z], dtype=torch.float32) - eye_t)
+        up_t = _normalize(torch.tensor([upw.x, upw.y, upw.z], dtype=torch.float32))
+        s = _normalize(torch.cross(f_t, up_t))
+        u = torch.cross(s, f_t)
 
-        V = np.zeros((4, 4), np.float32)
+        V = torch.zeros((4, 4), dtype=torch.float32)
         V[0, 0:3] = s
         V[1, 0:3] = u
-        V[2, 0:3] = -f_np
+        V[2, 0:3] = -f_t
         V[3, 3] = 1.0
-        V[0, 3] = -np.dot(s, eye_np)
-        V[1, 3] = -np.dot(u, eye_np)
-        V[2, 3] =  np.dot(f_np, eye_np)
+        V[0, 3] = -torch.dot(s, eye_t)
+        V[1, 3] = -torch.dot(u, eye_t)
+        V[2, 3] =  torch.dot(f_t, eye_t)
 
         aspect = max(1e-6, float(self.base.win.getXSize()) / max(1, self.base.win.getYSize()))
         fov_y_deg = 55.0
         z_near, z_far = 0.05, 100.0
         f = 1.0 / _math.tan(_math.radians(fov_y_deg) * 0.5)
-        P = np.zeros((4, 4), np.float32)
-        P[0, 0] = f / aspect
-        P[1, 1] = f
-        P[2, 2] = (z_far + z_near) / (z_near - z_far)
-        P[2, 3] = (2.0 * z_far * z_near) / (z_near - z_far)
-        P[3, 2] = -1.0
+        P = torch.zeros((4, 4), dtype=torch.float32)
+        P[0, 0] = torch.tensor(f / aspect, dtype=torch.float32)
+        P[1, 1] = torch.tensor(f, dtype=torch.float32)
+        P[2, 2] = torch.tensor((z_far + z_near) / (z_near - z_far), dtype=torch.float32)
+        P[2, 3] = torch.tensor((2.0 * z_far * z_near) / (z_near - z_far), dtype=torch.float32)
+        P[3, 2] = torch.tensor(-1.0, dtype=torch.float32)
 
         # print(P.shape, V.shape)
         # print(f'{P[0]=}')
@@ -389,7 +399,7 @@ class P3DCam(P3DShaderContext):
         # print(f'{V=}')
 
         VP = P @ V
-        return np.stack([VP] * self.num_scenes, axis=0)
+        return torch.stack([VP] * self.num_scenes, dim=0)
 
     def start_tasks(self, taskMgr, name: str = 'p3d_cam_update'):
         def _update(task):

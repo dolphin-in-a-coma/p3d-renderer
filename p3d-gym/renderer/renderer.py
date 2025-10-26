@@ -1,7 +1,6 @@
 import math
 import re
 from typing import Literal
-import numpy as np
 import torch
 
 from direct.showbase.ShowBase import ShowBase
@@ -82,10 +81,10 @@ class P3DRenderer(ShowBase):
             texture: Texture | str | bool | None = None,
             model_pivot_relative_point: tuple[float, float, float] | None = None,
             model_scale: tuple[float, float, float] = (10.0, 1.0, 1.0),
-            positions: 'np.ndarray | None' = None,
-            hprs: 'np.ndarray | None' = None,
-            scales: 'np.ndarray | None' = None,
-            colors: 'np.ndarray | None' = None,
+            positions: 'torch.Tensor | None' = None,
+            hprs: 'torch.Tensor | None' = None,
+            scales: 'torch.Tensor | None' = None,
+            colors: 'torch.Tensor | None' = None,
             backend: Literal[ "loop", "instanced"] = "instanced",
             shared_across_scenes: bool = False,
             parent: 'P3DNode | None' = None,
@@ -194,10 +193,11 @@ class P3DRenderer(ShowBase):
                 fwd_k3 = self._p3d_cam.get_forward()
                 # TODO: implement with hpr
                 fwd_x, fwd_y, fwd_z = fwd_k3[:,0], fwd_k3[:,1], fwd_k3[:,2]
-                new_fwd = np.array([fwd_x + mouse_dx * self._mouse_sensitivity, 
-                fwd_y,
-                fwd_z + mouse_dy * self._mouse_sensitivity]).T
-                new_fwd = new_fwd
+                new_fwd = torch.stack([
+                    fwd_x + float(mouse_dx) * self._mouse_sensitivity,
+                    fwd_y,
+                    fwd_z + float(mouse_dy) * self._mouse_sensitivity,
+                ], dim=1)
                 new_fwd = self._p3d_cam._normalize(new_fwd)
                 self._p3d_cam.set_forward(new_fwd)
 
@@ -310,9 +310,7 @@ class P3DRenderer(ShowBase):
             self.taskMgr.doMethodLater(0, self._init_frame_grabber_once, 'init_frame_grabber_once')
             return torch.zeros((int(self.cfg.window_resolution[1]), int(self.cfg.window_resolution[0]), self.cfg.num_channels), dtype=torch.uint8)
     
-    def _rearrange_img(self, img: torch.Tensor | np.ndarray) -> torch.Tensor:
-        if isinstance(img, np.ndarray):
-            img = torch.from_numpy(img).to(self.device)
+    def _rearrange_img(self, img: torch.Tensor) -> torch.Tensor:
 
         # print(img)
         # img: (R H)(CL W)CH

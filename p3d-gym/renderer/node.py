@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 
 from typing import Literal
@@ -18,10 +17,10 @@ class P3DNode(P3DShaderContext):
                 texture: Texture | str | bool | None = None,
                 model_pivot_relative_point: tuple[float, float, float] | None = None,
                 model_scale: tuple[float, float, float] = (1.0, 1.0, 1.0),
-                positions: np.ndarray | torch.Tensor | None = None,
-                hprs: np.ndarray | torch.Tensor | None = None,
-                scales: np.ndarray | torch.Tensor | None = None,
-                colors: np.ndarray | torch.Tensor | None = None,
+                positions: torch.Tensor | None = None,
+                hprs: torch.Tensor | None = None,
+                scales: torch.Tensor | None = None,
+                colors: torch.Tensor | None = None,
                 backend: Literal[ "loop", "instanced"] = "instanced",
                 shared_across_scenes: bool = False,
                 parent: 'P3DNode | NodePath | None' = None, # NOTE: parent is not fully functional yet
@@ -93,20 +92,20 @@ class P3DNode(P3DShaderContext):
         # init identity mats and white color
         # TODO: figure out why this is needed, and edit to use positions, scales, hprs, colors, that are in the arguments
         if model_path:
-            self.transforms_b44 = np.zeros((self.buf_instances,4,4), np.float32)
+            self.transforms_b44 = torch.zeros((self.buf_instances, 4, 4), dtype=torch.float32)
             self.transforms_b44[:,0,0]=1; self.transforms_b44[:,1,1]=1; self.transforms_b44[:,2,2]=1; self.transforms_b44[:,3,3]=1
-            self.rot3_b33 = np.zeros((self.buf_instances,3,3), np.float32)
+            self.rot3_b33 = torch.zeros((self.buf_instances, 3, 3), dtype=torch.float32)
             self.rot3_b33[:,0,0]=1; self.rot3_b33[:,1,1]=1; self.rot3_b33[:,2,2]=1
-            self.scale_b11 = np.ones((self.buf_instances,1,1), np.float32)
+            self.scale_b11 = torch.ones((self.buf_instances, 1, 1), dtype=torch.float32)
             self._upload_current_transforms()
-            col = np.ones((self.buf_instances,4), np.float32)
-            self.colbuf.set_ram_image(col.tobytes(order='C'))
+            col = torch.ones((self.buf_instances, 4), dtype=torch.float32)
+            self.colbuf.set_ram_image(col.contiguous().cpu().numpy().tobytes(order='C'))
 
-    def _upload_mat(self, mats: np.ndarray) -> None:
+    def _upload_mat(self, mats: torch.Tensor) -> None:
         if not getattr(self, 'has_geometry', True):
             return
         mats = type(self)._pack_columns(mats)
-        self.matbuf.set_ram_image(mats.tobytes(order='C'))
+        self.matbuf.set_ram_image(mats.contiguous().cpu().numpy().tobytes(order='C'))
 
     def _upload_current_transforms(self) -> None:
         if not getattr(self, 'has_geometry', True):
@@ -120,56 +119,56 @@ class P3DNode(P3DShaderContext):
         # print(self.transforms_b44[:,0:3,0:3])
         self._upload_mat(self.transforms_b44)
 
-    def set_positions(self, pos_si3: np.ndarray, lazy: bool = False) -> None:
+    def set_positions(self, pos_si3: torch.Tensor, lazy: bool = False) -> None:
         if not getattr(self, 'has_geometry', True):
             return
-        pos = pos_si3.reshape(-1,3).astype(np.float32, copy=False)
-        self.transforms_b44[:,0:3,3]=pos[:self.buf_instances] # [:self.buf_instances] is ensuring proper setting when shared across scenes
+        pos = torch.as_tensor(pos_si3, dtype=torch.float32).reshape(-1, 3)
+        self.transforms_b44[:,0:3,3]=pos[:self.buf_instances]
         if not lazy:
             self._upload_current_transforms()
 
-    def set_hprs(self, hpr_si3: np.ndarray, lazy: bool = False) -> None:
+    def set_hprs(self, hpr_si3: torch.Tensor, lazy: bool = False) -> None:
         if not getattr(self, 'has_geometry', True):
             return
-        hpr = hpr_si3.reshape(-1,3).astype(np.float32, copy=False)
+        hpr = torch.as_tensor(hpr_si3, dtype=torch.float32).reshape(-1, 3)
         R3 = type(self)._rotation_mats_from_hpr(hpr[:self.buf_instances])
         self.rot3_b33[:,:,:] = R3
         if not lazy:
             self._upload_current_transforms()
 
-    def set_scales(self, scale_si1: np.ndarray | float, lazy: bool = False) -> None:
+    def set_scales(self, scale_si1: torch.Tensor | float, lazy: bool = False) -> None:
         if not getattr(self, 'has_geometry', True):
             return
         if isinstance(scale_si1, (float, int)):
-            s = float(scale_si1) * np.ones((self.buf_instances,1,1), np.float32)
+            s = torch.full((self.buf_instances, 1, 1), float(scale_si1), dtype=torch.float32)
         else:
-            s = np.array(scale_si1, dtype=np.float32).reshape(-1,1,1)
+            s = torch.as_tensor(scale_si1, dtype=torch.float32).reshape(-1, 1, 1)
         self.scale_b11 = s[:self.buf_instances]
         if not lazy:
             self._upload_current_transforms()
 
-    def set_colors(self, col_si4: np.ndarray) -> None:
+    def set_colors(self, col_si4: torch.Tensor) -> None:
         if not getattr(self, 'has_geometry', True):
             return
-        col = col_si4.reshape(-1,4).astype(np.float32, copy=False)
-        col = col[:self.buf_instances] # NOTE: I think B cutting is needed if we send an array that is too large for shared across scenes
-        self.colbuf.set_ram_image(col.tobytes(order='C'))
+        col = torch.as_tensor(col_si4, dtype=torch.float32).reshape(-1, 4)
+        col = col[:self.buf_instances]
+        self.colbuf.set_ram_image(col.contiguous().cpu().numpy().tobytes(order='C'))
 
-    def set_transforms(self, mats_b44: np.ndarray) -> None:
+    def set_transforms(self, mats_b44: torch.Tensor) -> None:
         """Upload full per-instance transform matrices (B,4,4)."""
         if not getattr(self, 'has_geometry', True):
             return
-        mats_b44 = mats_b44.astype(np.float32, copy=False)
-        self.transforms_b44 = mats_b44.copy()
-        self.rot3_b33 = self.transforms_b44[:,0:3,0:3].copy()
+        mats_b44 = torch.as_tensor(mats_b44, dtype=torch.float32)
+        self.transforms_b44 = mats_b44.clone()
+        self.rot3_b33 = self.transforms_b44[:,0:3,0:3].clone()
         # assume uniform scale from 3x3 average of column norms
-        col0 = np.linalg.norm(self.rot3_b33[:,0,:], axis=1)
-        col1 = np.linalg.norm(self.rot3_b33[:,1,:], axis=1)
-        col2 = np.linalg.norm(self.rot3_b33[:,2,:], axis=1)
+        col0 = torch.linalg.norm(self.rot3_b33[:,0,:], dim=1)
+        col1 = torch.linalg.norm(self.rot3_b33[:,1,:], dim=1)
+        col2 = torch.linalg.norm(self.rot3_b33[:,2,:], dim=1)
         s = (col0 + col1 + col2) / 3.0
-        s = np.clip(s, 1e-8, None)
-        self.scale_b11 = s.reshape(-1,1,1).astype(np.float32, copy=False)
-        self.rot3_b33 /= self.scale_b11 # [:,None,None]
+        s = torch.clamp(s, min=1e-8)
+        self.scale_b11 = s.reshape(-1, 1, 1).to(torch.float32)
+        self.rot3_b33 = self.rot3_b33 / self.scale_b11
         self._upload_current_transforms()
 
     def _register_self(self) -> None:

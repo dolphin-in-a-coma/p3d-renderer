@@ -2,7 +2,6 @@ import time
 
 import math
 from dataclasses import dataclass
-import numpy as np
 import torch
 from tensordict import TensorDict
 from torchrl.envs import EnvBase
@@ -81,53 +80,53 @@ class CartPoleRenderer(P3DRenderer):
 
         # Position/color buffers
         num_scenes = int(self.cfg.num_scenes)
-        self.rail_pos = np.zeros((1, instances_per_scene, 3), np.float32)
-        self.cart_pos = np.zeros((num_scenes, instances_per_scene, 3), np.float32)
-        self.pole_pos = self.cart_pos.copy() + np.array([0, (self.cart_size[1] + self.pole_size[1]) * 0.5, 0], dtype=np.float32)
+        self.rail_pos = torch.zeros((1, instances_per_scene, 3), dtype=torch.float32)
+        self.cart_pos = torch.zeros((num_scenes, instances_per_scene, 3), dtype=torch.float32)
+        self.pole_pos = self.cart_pos.clone() + torch.tensor([0, (self.cart_size[1] + self.pole_size[1]) * 0.5, 0], dtype=torch.float32)
         self.rail.set_positions(self.rail_pos)
         self.cart.set_positions(self.cart_pos)
         self.pole.set_positions(self.pole_pos)
 
-        self.rail_base_color = np.ones((1, instances_per_scene, 4), np.float32) * np.array(self.rail_pos_color, dtype=np.float32)
-        self.cart_base_color = np.linspace(self.cart_pos_color_range[0], self.cart_pos_color_range[1], num_scenes).astype(np.float32)
-        self.pole_base_color = np.ones((num_scenes, instances_per_scene, 4), np.float32) * np.array(self.pole_pos_color, dtype=np.float32)
+        self.rail_base_color = torch.ones((1, instances_per_scene, 4), dtype=torch.float32) * torch.tensor(self.rail_pos_color, dtype=torch.float32)
+        start_col = torch.tensor(self.cart_pos_color_range[0], dtype=torch.float32)
+        end_col = torch.tensor(self.cart_pos_color_range[1], dtype=torch.float32)
+        t = torch.linspace(0.0, 1.0, steps=num_scenes, dtype=torch.float32)
+        self.cart_base_color = (start_col.unsqueeze(0) + (end_col - start_col).unsqueeze(0) * t.unsqueeze(1))
+        self.pole_base_color = torch.ones((num_scenes, instances_per_scene, 4), dtype=torch.float32) * torch.tensor(self.pole_pos_color, dtype=torch.float32)
         self.rail.set_colors(self.rail_base_color)
         self.cart.set_colors(self.cart_base_color)
         self.pole.set_colors(self.pole_base_color)
 
-        self.pole_hpr = np.zeros((num_scenes, instances_per_scene, 3), np.float32)
-        self.pole_hpr[:, :, 1] = np.pi * 0.5
+        self.pole_hpr = torch.zeros((num_scenes, instances_per_scene, 3), dtype=torch.float32)
+        self.pole_hpr[:, :, 1] = math.pi * 0.5
         self.pole.set_hprs(self.pole_hpr)
 
         # Buffers mapped from state
-        self.cart_x_pos = self.cart_pos[:, :, 0:1].copy()
-        self.pole_theta = np.zeros_like(self.cart_x_pos)
+        self.cart_x_pos = self.cart_pos[:, :, 0:1].clone()
+        self.pole_theta = torch.zeros_like(self.cart_x_pos)
 
         self.add_camera()
-        self._p3d_cam.set_positions(np.array([5, 5, 2], dtype=np.float32))
-        self._p3d_cam.look_at(np.array([0, 0, 0], dtype=np.float32))
+        self._p3d_cam.set_positions(torch.tensor([5, 5, 2], dtype=torch.float32))
+        self._p3d_cam.look_at(torch.tensor([0, 0, 0], dtype=torch.float32))
         self.add_light()
         self.setup_environment()
 
-    def _step(self, state_batch: torch.Tensor | np.ndarray | None = None):
+    def _step(self, state_batch: torch.Tensor | None = None):
         # Accept direct state [B, 4] where x and theta are at indices 0 and 2
         if state_batch is None:
             return
-        if isinstance(state_batch, torch.Tensor):
-            state_np = state_batch.detach().cpu().numpy()
-        else:
-            state_np = np.asarray(state_batch)
-        B = state_np.shape[0]
+        state_t = torch.as_tensor(state_batch, dtype=torch.float32).detach().cpu()
+        B = int(state_t.shape[0])
         # Truncate/expand to num_scenes
         N = int(self.cfg.num_scenes)
         if B != N:
             if B < N:
-                pad = np.repeat(state_np[-1:], N - B, axis=0)
-                state_np = np.concatenate([state_np, pad], axis=0)
+                pad = state_t[-1:].repeat(N - B, 1)
+                state_t = torch.cat([state_t, pad], dim=0)
             else:
-                state_np = state_np[:N]
-        x = state_np[:, 0:1]
-        theta = state_np[:, 2:3]
+                state_t = state_t[:N]
+        x = state_t[:, 0:1]
+        theta = state_t[:, 2:3]
         self.cart_x_pos[:, :, 0] = x
         self.cart_pos[:, :, 0:1] = self.cart_x_pos
         self.cart.set_positions(self.cart_pos)
@@ -316,9 +315,10 @@ class CartPoleEnv(P3DEnv):
 
 # Quick test
 if __name__ == "__main__":
-    use_parallel_envs = True
-    num_parallel_envs = 2
-    num_scenes = 1024 # #256
+
+    use_parallel_envs = False
+    num_parallel_envs = 8
+    num_scenes = 1024 #256
     tile_resolution = (64, 64)
     config = CartPoleConfig(num_scenes=num_scenes, tile_resolution=tile_resolution)
     if use_parallel_envs:

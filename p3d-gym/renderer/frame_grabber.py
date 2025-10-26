@@ -1,6 +1,4 @@
-
 import torch
-import numpy as np
 from abc import ABC, abstractmethod
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import Texture
@@ -154,18 +152,19 @@ class CPUFrameGrabber(BaseFrameGrabber):
         except Exception:
             data = tex.getRamImage()
 
-        arr = np.frombuffer(data, dtype=np.uint8)
+        # Interpret bytes as uint8 tensor efficiently using ByteStorage
+        storage = torch.ByteStorage.from_buffer(data)  # shares memory with underlying buffer
+        flat = torch.ByteTensor(storage)
         num_pixels = max(1, w * h)
-        channels = arr.size // num_pixels if num_pixels else 0
-        if channels and channels != 3:
-            arr = arr.reshape((h, w, channels))[..., :3]
+        channels = flat.numel() // num_pixels if num_pixels else 0
+        if channels and channels >= 3:
+            t = flat.view(h, w, channels)[..., :3].contiguous()
         else:
-            arr = arr.reshape((h, w, 3)) if arr.size >= w * h * 3 else np.zeros((h, w, 3), dtype=np.uint8)
+            # Fallback to zeros if data is insufficient
+            t = torch.zeros((h, w, 3), dtype=torch.uint8)
 
-        # Flip vertically, ensure contiguous, and convert to torch CPU tensor
-        arr = np.flipud(arr).copy()
-        # print("arr:", arr)
-        return torch.from_numpy(arr)
+        # Flip vertically and return
+        return t.flip(0).contiguous()
 
     def close(self):
         pass

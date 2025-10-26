@@ -1,4 +1,4 @@
-import numpy as np
+import torch
 
 from typing import Literal
 
@@ -40,44 +40,48 @@ class P3DShaderContext(ABC):
         return tex
 
     @staticmethod
-    def _pack_columns(mat_batch: np.ndarray) -> np.ndarray:
+    def _pack_columns(mat_batch: torch.Tensor) -> torch.Tensor:
         # (B,4,4) -> (B,4,4) column-packed (transpose last two axes)
-        return mat_batch.transpose(0, 2, 1).astype(np.float32, copy=False)
+        return mat_batch.transpose(1, 2).to(torch.float32)
 
     @staticmethod
-    def _rotation_mats_from_hpr(hpr_b3: np.ndarray) -> np.ndarray:
+    def _rotation_mats_from_hpr(hpr_b3: torch.Tensor) -> torch.Tensor:
         """Vectorized rotation matrices from Euler angles (H, P, R) in radians.
         Order: R = Rz(H) @ Ry(P) @ Rx(R). Returns shape (B, 3, 3).
         """
+        hpr_b3 = hpr_b3.to(torch.float32)
         h = hpr_b3[:, 0]
         p = hpr_b3[:, 1]
         r = hpr_b3[:, 2]
-        ch, sh = np.cos(h), np.sin(h)
-        cp, sp = np.cos(p), np.sin(p)
-        cr, sr = np.cos(r), np.sin(r)
+        ch, sh = torch.cos(h), torch.sin(h)
+        cp, sp = torch.cos(p), torch.sin(p)
+        cr, sr = torch.cos(r), torch.sin(r)
+
+        B = hpr_b3.shape[0]
+        device = hpr_b3.device
 
         # Rz(H)
-        Rz = np.zeros((hpr_b3.shape[0], 3, 3), dtype=np.float32)
+        Rz = torch.zeros((B, 3, 3), dtype=torch.float32, device=device)
         Rz[:, 0, 0] = ch; Rz[:, 0, 1] = -sh; Rz[:, 0, 2] = 0.0
         Rz[:, 1, 0] = sh; Rz[:, 1, 1] =  ch; Rz[:, 1, 2] = 0.0
         Rz[:, 2, 0] = 0.0; Rz[:, 2, 1] = 0.0; Rz[:, 2, 2] = 1.0
 
         # Ry(P)
-        Ry = np.zeros((hpr_b3.shape[0], 3, 3), dtype=np.float32)
+        Ry = torch.zeros((B, 3, 3), dtype=torch.float32, device=device)
         Ry[:, 0, 0] =  cp; Ry[:, 0, 1] = 0.0; Ry[:, 0, 2] = sp
         Ry[:, 1, 0] = 0.0; Ry[:, 1, 1] = 1.0; Ry[:, 1, 2] = 0.0
         Ry[:, 2, 0] = -sp; Ry[:, 2, 1] = 0.0; Ry[:, 2, 2] = cp
 
         # Rx(R)
-        Rx = np.zeros((hpr_b3.shape[0], 3, 3), dtype=np.float32)
+        Rx = torch.zeros((B, 3, 3), dtype=torch.float32, device=device)
         Rx[:, 0, 0] = 1.0; Rx[:, 0, 1] = 0.0; Rx[:, 0, 2] = 0.0
         Rx[:, 1, 0] = 0.0; Rx[:, 1, 1] =  cr; Rx[:, 1, 2] = -sr
         Rx[:, 2, 0] = 0.0; Rx[:, 2, 1] =  sr; Rx[:, 2, 2] =  cr
 
         # R = Rz @ Ry @ Rx
-        Rzy = np.einsum('bij,bjk->bik', Rz, Ry)
-        R = np.einsum('bij,bjk->bik', Rzy, Rx)
-        return R.astype(np.float32, copy=False)
+        Rzy = torch.einsum('bij,bjk->bik', Rz, Ry)
+        R = torch.einsum('bij,bjk->bik', Rzy, Rx)
+        return R.to(torch.float32)
 
 
     def _set_shader_input(self, input_name: str, value) -> None:
