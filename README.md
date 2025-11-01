@@ -52,6 +52,24 @@ Notes:
 - CUDA extras are skipped on macOS automatically.
 - GPU grabbing requires an NVIDIA GPU and driver with CUDA, plus OpenGL.
 
+### CUDA prerequisites (Ubuntu)
+Detect your NVIDIA driver version, then install matching GL libs:
+
+```bash
+sudo apt-get update
+DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n1 | cut -d. -f1)
+sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR"
+```
+
+If needed, specify explicitly or fallback to basic EGL libs:
+
+```bash
+sudo apt-get install -y --no-install-recommends libnvidia-gl-{DRIVER_VERSION}
+sudo apt-get install -y --no-install-recommends libegl1
+```
+
+Notes: Windows is not tested yet. Tested on macOS (Metal; no CUDA interop) and Ubuntu with NVIDIA.
+
 ### Quickstart
 Render a small tiled batch offscreen and get a Torch tensor back as [B, C, H, W].
 
