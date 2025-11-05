@@ -3,14 +3,14 @@ import numpy as np
 from panda3d.core import loadPrcFileData
 
 try:
-    from .renderer.renderer import P3DRenderer
-    from .renderer.shader_context import P3DShaderContext
+    from .renderer.renderer import PBRRenderer
+    from .renderer.shader_context import PBRShaderContext
 except ImportError:
     # Fallback when run as a script (no package parent)
-    from renderer.renderer import P3DRenderer
-    from renderer.shader_context import P3DShaderContext
+    from renderer.renderer import PBRRenderer
+    from renderer.shader_context import PBRShaderContext
 
-class CartPoleDemo(P3DRenderer):
+class CartPoleDemo(PBRRenderer):
     def __init__(self):
         num_scenes = 1024*16 # 1024*4 # 1024*4 # 1024*4 # ~1024 is the best on Mac, ~8k is the best on L4
         tile_resolution = (64,64)

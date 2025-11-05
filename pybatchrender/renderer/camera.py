@@ -3,11 +3,11 @@ import torch
 
 from typing import Literal
 
-from .shader_context import P3DShaderContext
-from .node import P3DNode
+from .shader_context import PBRShaderContext
+from .node import PBRNode
 
 
-class P3DCam(P3DShaderContext):
+class PBRCam(PBRShaderContext):
     def __init__(self, showbase, 
                 num_scenes: int,
                 cols: int | None = None,
@@ -26,8 +26,8 @@ class P3DCam(P3DShaderContext):
         self.z_far = float(z_far)
         self.fixed_projection = fixed_projection
         # Create view/tile buffer textures
-        self.viewbuf = self._setup_buffer_texture('p3d_cam_viewbuf', max(1,self.num_scenes)*4)
-        self.tilebuf = self._setup_buffer_texture('p3d_cam_tilebuf', max(1,self.num_scenes))
+        self.viewbuf = self._setup_buffer_texture('pbr_cam_viewbuf', max(1,self.num_scenes)*4)
+        self.tilebuf = self._setup_buffer_texture('pbr_cam_tilebuf', max(1,self.num_scenes))
         
         self.cols = cols
         self.rows = rows
@@ -61,19 +61,19 @@ class P3DCam(P3DShaderContext):
 
         # Control whether to sync VP from Panda3D base camera each frame
         self.sync_from_base_cam: bool = False
-        if hasattr(self.base, '_p3d_nodes') and self.base._p3d_nodes: # TODO: rename
+        if hasattr(self.base, '_pbr_nodes') and self.base._pbr_nodes: # TODO: rename
             self.attach_all()
         # Register camera singleton
         self._register_self()
 
-    def attach(self, node: P3DNode) -> None:
-        # NOTE: P3DNode is not imported, so string typing, maybe change?
+    def attach(self, node: PBRNode) -> None:
+        # NOTE: PBRNode is not imported, so string typing, maybe change?
         node._set_shader_input('viewbuf', self.viewbuf)
         node._set_shader_input('tilebuf', self.tilebuf)
         node._set_shader_input('K', self.num_scenes)
         node._auto_screen_size_input()
 
-    def attach_many(self, nodes: list[P3DNode]) -> None:
+    def attach_many(self, nodes: list[PBRNode]) -> None:
         for n in nodes:
             self.attach(n)
 
@@ -242,7 +242,7 @@ class P3DCam(P3DShaderContext):
 
     @staticmethod
     def _fwd_up_from_hpr(hpr_k3: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        R = P3DShaderContext._rotation_mats_from_hpr(hpr_k3)
+        R = PBRShaderContext._rotation_mats_from_hpr(hpr_k3)
         unit_fwd = torch.tensor([0.0, 1.0, 0.0], dtype=torch.float32, device=R.device)
         unit_up = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32, device=R.device)
         fwd = torch.einsum('bij,j->bi', R, unit_fwd)
@@ -401,7 +401,7 @@ class P3DCam(P3DShaderContext):
         VP = P @ V
         return torch.stack([VP] * self.num_scenes, dim=0)
 
-    def start_tasks(self, taskMgr, name: str = 'p3d_cam_update'):
+    def start_tasks(self, taskMgr, name: str = 'pbr_cam_update'):
         def _update(task):
             # Update VP only if syncing from Panda base camera is enabled
             if self.sync_from_base_cam:
@@ -429,6 +429,6 @@ class P3DCam(P3DShaderContext):
 
     def _register_self(self) -> None:
         # Camera singleton on ShowBase
-        self.base._p3d_cam = self
+        self.base._pbr_cam = self
 
 

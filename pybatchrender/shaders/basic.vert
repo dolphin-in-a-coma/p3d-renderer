@@ -11,9 +11,9 @@ uniform int instancesPerScene;       // I
 uniform int shareAcrossScenes;      // 0 = per-scene distinct, 1 = shared across scenes
 // TODO: Add lighting?
 
-in vec4 p3d_Vertex;
-in vec3 p3d_Normal;
-in vec2 p3d_MultiTexCoord0;
+in vec4 pbr_Vertex;
+in vec3 pbr_Normal;
+in vec2 pbr_MultiTexCoord0;
 
 out vec3 v_normal;
 out vec4 v_color;
@@ -40,7 +40,7 @@ void main(){
   vec4 vc3 = texelFetch(viewbuf, vbase+3);
   mat4 VP = mat4(vc0,vc1,vc2,vc3);
 
-  vec4 clip = VP * (M * p3d_Vertex);
+  vec4 clip = VP * (M * pbr_Vertex);
 
     vec4 tile = texelFetch(tilebuf, scene);
     float x0 = 2.0*tile.x-1.0;
@@ -50,10 +50,10 @@ void main(){
     vec2 s = vec2(0.5*(x1-x0), 0.5*(y1-y0));
     vec2 o = vec2(0.5*(x0+x1), 0.5*(y0+y1));
     gl_Position = vec4(clip.xy*s + o*clip.w, clip.z, clip.w);
-  v_normal = normalize(mat3(M)*p3d_Normal);
+  v_normal = normalize(mat3(M)*pbr_Normal);
   v_color = texelFetch(colbuf, id);
   v_view = scene;
-  v_uv = p3d_MultiTexCoord0;
+  v_uv = pbr_MultiTexCoord0;
 }
 
 

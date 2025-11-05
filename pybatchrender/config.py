@@ -6,15 +6,15 @@ from dataclasses import dataclass, asdict
 
 import math
 from typing import Iterable, TypeVar
-# NOTE: Avoid importing TorchRL here to keep P3DConfig import lightweight
+# NOTE: Avoid importing TorchRL here to keep PBRConfig import lightweight
 
 import torch
 
-T = TypeVar("T", bound="P3DConfig")
+T = TypeVar("T", bound="PBRConfig")
 
 
 @dataclass
-class P3DConfig:
+class PBRConfig:
     offscreen: bool = True
 
     num_scenes: int | None = None
@@ -167,7 +167,7 @@ class P3DConfig:
 
         # cfg_diff = {k: v for k, v in cfg_dict.items() if k in default_cfg and v != default_cfg[k]}
         # print(cfg_diff)
-        # print(f"P3DConfig non-defaults: {cfg_diff}")
+        # print(f"PBRConfig non-defaults: {cfg_diff}")
         # print(f"Default {default_cfg}")
 
         # return cls(**cfg_diff)
@@ -191,7 +191,7 @@ class P3DConfig:
         return ''.join(prc)
 
     def __repr__(self):
-        repr_string = f"P3DConfig(\n"
+        repr_string = f"PBRConfig(\n"
         for key, value in asdict(self).items():
             repr_string += f"    {key}: {value!r}\n"
         repr_string += ")"

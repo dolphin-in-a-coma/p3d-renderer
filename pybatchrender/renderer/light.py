@@ -2,10 +2,10 @@ from typing import Literal
 
 from direct.showbase.ShowBase import ShowBase
 
-from .shader_context import P3DShaderContext
+from .shader_context import PBRShaderContext
 
 
-class P3DLight(P3DShaderContext):
+class PBRLight(PBRShaderContext):
     """Global lighting controller (ambient + directional) broadcasting to all registered nodes."""
     def __init__(self, showbase: ShowBase,
                  ambient: tuple[float, float, float] = (0.2, 0.2, 0.25),
@@ -39,6 +39,6 @@ class P3DLight(P3DShaderContext):
 
     def _register_self(self) -> None:
         # Ensure light singleton on ShowBase
-        self.base._p3d_light = self
+        self.base._pbr_light = self
 
 

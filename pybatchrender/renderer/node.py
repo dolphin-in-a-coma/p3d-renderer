@@ -5,10 +5,10 @@ from typing import Literal
 from panda3d.core import Texture, OmniBoundingVolume, NodePath
 from direct.showbase.ShowBase import ShowBase
 
-from .shader_context import P3DShaderContext
+from .shader_context import PBRShaderContext
 
 
-class P3DNode(P3DShaderContext):
+class PBRNode(PBRShaderContext):
     def __init__(self,
                 showbase,
                 model_path: str | None, # NOTE: setting None is not fully functional yet
@@ -23,7 +23,7 @@ class P3DNode(P3DShaderContext):
                 colors: torch.Tensor | None = None,
                 backend: Literal[ "loop", "instanced"] = "instanced",
                 shared_across_scenes: bool = False,
-                parent: 'P3DNode | NodePath | None' = None, # NOTE: parent is not fully functional yet
+                parent: 'PBRNode | NodePath | None' = None, # NOTE: parent is not fully functional yet
                 name: str | None = None
                 ) -> None:
 
@@ -46,7 +46,7 @@ class P3DNode(P3DShaderContext):
         
         # TODO: remove for now
         # parent_np = None
-        # if isinstance(parent, P3DNode):
+        # if isinstance(parent, PBRNode):
         #     parent_np = parent.np
         # elif isinstance(parent, NodePath):
         #     parent_np = parent
@@ -66,7 +66,7 @@ class P3DNode(P3DShaderContext):
             self.has_geometry = True
         else:
             # Create an empty transform node, NOTE: empty nodes are not fully supported yet
-            self.np = self.base.render.attachNewNode(name or 'p3d_empty')
+            self.np = self.base.render.attachNewNode(name or 'pbr_empty')
             self.has_geometry = False
             # TODO: implement geometry that affects children nodes
         
@@ -77,8 +77,8 @@ class P3DNode(P3DShaderContext):
         
         # allocate buffers only if there is geometry to render
         if model_path:
-            self.matbuf = self._setup_buffer_texture('p3d_matbuf', self.buf_instances*4)
-            self.colbuf = self._setup_buffer_texture('p3d_colbuf', self.buf_instances)
+            self.matbuf = self._setup_buffer_texture('pbr_matbuf', self.buf_instances*4)
+            self.colbuf = self._setup_buffer_texture('pbr_colbuf', self.buf_instances)
             self._set_shader_input('matbuf', self.matbuf)
             self._set_shader_input('colbuf', self.colbuf)
             self._set_shader_input('instancesPerScene', max(1, self.buf_instances//max(1,self.num_scenes)))
@@ -173,10 +173,10 @@ class P3DNode(P3DShaderContext):
 
     def _register_self(self) -> None:
         # Ensure registry exists and add this node once
-        if not hasattr(self.base, '_p3d_nodes'):
-            self.base._p3d_nodes = []
-        if self not in self.base._p3d_nodes:
-            self.base._p3d_nodes.append(self)
+        if not hasattr(self.base, '_pbr_nodes'):
+            self.base._pbr_nodes = []
+        if self not in self.base._pbr_nodes:
+            self.base._pbr_nodes.append(self)
 
     def set_texture(self, texture: Texture | str | bool | None = None
     ) -> None:
@@ -190,29 +190,29 @@ class P3DNode(P3DShaderContext):
         else:
             self._set_shader_input('useTexture', 0.0)
 
-    def reparent_to(self, parent: 'P3DNode | NodePath') -> None:
-        raise NotImplementedError("P3DNode.reparent_to is not implemented yet")
+    def reparent_to(self, parent: 'PBRNode | NodePath') -> None:
+        raise NotImplementedError("PBRNode.reparent_to is not implemented yet")
         # Implement by linking the geometry of this node to the geometry of the parent node
-        # target = parent.np if isinstance(parent, P3DNode) else parent
+        # target = parent.np if isinstance(parent, PBRNode) else parent
         # self.np.reparentTo(target)
 
     def _set_lighting_strength(self, strength: float, overwrite: bool = False) -> None:
-        if overwrite or not hasattr(self.base, '_p3d_light'):
+        if overwrite or not hasattr(self.base, '_pbr_light'):
             self._set_shader_input('lightingStrength', float(strength))
 
     def _set_lighting(self, dir_dir, dir_col, amb_col, overwrite: bool = False) -> None:
-        if overwrite or not hasattr(self.base, '_p3d_light'):
+        if overwrite or not hasattr(self.base, '_pbr_light'):
             self._set_shader_input('dirLightDir', tuple(float(x) for x in dir_dir))
             self._set_shader_input('dirLightCol', tuple(float(x) for x in dir_col))
             self._set_shader_input('ambientCol',  tuple(float(x) for x in amb_col))
 
     def _attempt_camera_connect(self):
-        if hasattr(self.base, '_p3d_cam') and self.base._p3d_cam:
-            self.base._p3d_cam.attach(self)
+        if hasattr(self.base, '_pbr_cam') and self.base._pbr_cam:
+            self.base._pbr_cam.attach(self)
 
     def _attempt_light_connect(self):
-        if hasattr(self.base, '_p3d_light') and self.base._p3d_light:
-            self.base._p3d_light.attach(self)
+        if hasattr(self.base, '_pbr_light') and self.base._pbr_light:
+            self.base._pbr_light.attach(self)
 
     def pivot_to_rel(self, relative_point: tuple[float, float, float] | None = None):
         """

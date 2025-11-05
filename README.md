@@ -1,4 +1,4 @@
-### p3d-gym
+### pybatchrender
 
 Utilities to build fast-rendered 3D environments with Panda3D and TorchRL. Includes a lightweight renderer, camera/light helpers, and example environments/demos.
 
@@ -19,7 +19,7 @@ Utilities to build fast-rendered 3D environments with Panda3D and TorchRL. Inclu
 
 ```bash
 pip install -U pip
-pip install p3d-gym
+pip install pybatchrender
 ```
 
 - From source (this repo):
@@ -34,18 +34,18 @@ pip install -e .
 - With optional image-saving extras:
 
 ```bash
-pip install "p3d-gym[images]"
+pip install "pybatchrender[images]"
 ```
 
 - With optional CUDA interop extras (Linux/Windows with NVIDIA):
 
 ```bash
 # CUDA 12.x systems (default)
-pip install "p3d-gym[cuda]"
+pip install "pybatchrender[cuda]"
 
 # If you are on CUDA 11.x, install the matching CuPy wheel first, e.g.:
 pip install cupy-cuda11x
-pip install "p3d-gym[cuda]"
+pip install "pybatchrender[cuda]"
 ```
 
 Notes:
@@ -74,11 +74,11 @@ Notes: Windows is not tested yet. Tested on macOS (Metal; no CUDA interop) and U
 Render a small tiled batch offscreen and get a Torch tensor back as [B, C, H, W].
 
 ```python
-from p3d_gym import P3DConfig
-from p3d_gym import P3DRenderer
+from pybatchrender import PBRConfig
+from pybatchrender import PBRRenderer
 
-cfg = P3DConfig(num_scenes=4, tile_resolution=(64, 64), offscreen=True, report_fps=False)
-renderer = P3DRenderer(cfg)
+cfg = PBRConfig(num_scenes=4, tile_resolution=(64, 64), offscreen=True, report_fps=False)
+renderer = PBRRenderer(cfg)
 
 # Minimal setup
 renderer.add_camera()
@@ -95,9 +95,9 @@ print(img_batch.shape)  # torch.Size([4, 3, 64, 64])
 The package ships a few demos you can run directly:
 
 ```bash
-python -m p3d_gym.demo_cartpole
-python -m p3d_gym.demo_cartpole_with_logic
-python -m p3d_gym.demo_many_cubes
+python -m pybatchrender.demo_cartpole
+python -m pybatchrender.demo_cartpole_with_logic
+python -m pybatchrender.demo_many_cubes
 ```
 
 Notes:
@@ -105,10 +105,10 @@ Notes:
 - Demo models like `models/box` and `models/smiley` are standard Panda3D sample models.
 
 ### Using with TorchRL
-`p3d_gym.env.P3DEnv` provides a base class for TorchRL environments and utilities to define specs and render batches. See `p3d_gym/demo_cartpole_with_logic.py` for a full example environment with rendering.
+`pybatchrender.env.PBREnv` provides a base class for TorchRL environments and utilities to define specs and render batches. See `pybatchrender/demo_cartpole_with_logic.py` for a full example environment with rendering.
 
 ### Package data
-Shader sources under `p3d_gym/shaders/` are included automatically; no path configuration is needed.
+Shader sources under `pybatchrender/shaders/` are included automatically; no path configuration is needed.
 
 ### Development
 - Build locally:
@@ -120,7 +120,7 @@ python -m build
 - Run tests/demos from the repo root to validate rendering:
 
 ```bash
-python -m p3d_gym.demo_cartpole
+python -m pybatchrender.demo_cartpole
 ```
 
 ### License

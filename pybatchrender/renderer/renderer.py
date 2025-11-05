@@ -10,34 +10,34 @@ from direct.showbase.ShowBaseGlobal import globalClock
 
 
 
-from .node import P3DNode
-from .camera import P3DCam
-from .light import P3DLight
+from .node import PBRNode
+from .camera import PBRCam
+from .light import PBRLight
 from .frame_grabber import GPUFrameGrabber, CPUFrameGrabber, GPU_AVAILABLE
 # Support both package and script-style imports
 try:
-    from ..config import P3DConfig  # when imported as part of the package
+    from ..config import PBRConfig  # when imported as part of the package
 except Exception:
     try:
         # when run with cwd at the package root (so `config.py` is top-level)
-        from config import P3DConfig
+        from config import PBRConfig
     except Exception:
         # final fallback: add parent directory of this file to sys.path
         import os, sys
         sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-        from config import P3DConfig
+        from config import PBRConfig
 
 
-class P3DRenderer(ShowBase):
+class PBRRenderer(ShowBase):
     """ShowBase subclass that embeds scene helpers for multi-view rendering.
 
-    This merges the responsibilities of `P3DScene` into a parent renderer so
-    apps can simply inherit from `P3DRenderer` and call helper methods directly.
+    This merges the responsibilities of `PBRScene` into a parent renderer so
+    apps can simply inherit from `PBRRenderer` and call helper methods directly.
     """
-    def __init__(self, cfg: P3DConfig | dict | None = None, **cfg_overrides):
+    def __init__(self, cfg: PBRConfig | dict | None = None, **cfg_overrides):
         
         # Process config and apply PRC before initializing ShowBase
-        self.cfg = P3DConfig.from_config(cfg, **cfg_overrides)
+        self.cfg = PBRConfig.from_config(cfg, **cfg_overrides)
         prc_data = self.cfg.build_prc()
         loadPrcFileData('', prc_data)
         super().__init__()
@@ -50,9 +50,9 @@ class P3DRenderer(ShowBase):
         print("Prc data:", prc_data)
 
         # Initial registries used by node/cam/light helpers
-        self._p3d_nodes: list[P3DNode] = []
-        self._p3d_cam: P3DCam | None = None
-        self._p3d_light: P3DLight | None = None
+        self._pbr_nodes: list[PBRNode] = []
+        self._pbr_cam: PBRCam | None = None
+        self._pbr_light: PBRLight | None = None
         self.num_scenes = int(self.cfg.num_scenes)
 
         # FPS reporting
@@ -87,10 +87,10 @@ class P3DRenderer(ShowBase):
             colors: 'torch.Tensor | None' = None,
             backend: Literal[ "loop", "instanced"] = "instanced",
             shared_across_scenes: bool = False,
-            parent: 'P3DNode | None' = None,
+            parent: 'PBRNode | None' = None,
             name: str | None = None,
-            ) -> P3DNode:
-        node = P3DNode(self, model_path=model_path, 
+            ) -> PBRNode:
+        node = PBRNode(self, model_path=model_path, 
                         num_scenes=self.num_scenes,
                         instances_per_scene=int(instances_per_scene), 
                         texture=texture,
@@ -106,24 +106,24 @@ class P3DRenderer(ShowBase):
                         name=name)
         return node
 
-    def add_camera(self) -> P3DCam:
-        self._p3d_cam = P3DCam(self, num_scenes=self.cfg.num_scenes, cols=self.cfg.tiles[0], rows=self.cfg.tiles[1])
-        return self._p3d_cam
+    def add_camera(self) -> PBRCam:
+        self._pbr_cam = PBRCam(self, num_scenes=self.cfg.num_scenes, cols=self.cfg.tiles[0], rows=self.cfg.tiles[1])
+        return self._pbr_cam
 
     # TODO: is this still of any use?
     def _set_tiles_auto(self) -> None:
-        if self._p3d_cam is None:
+        if self._pbr_cam is None:
             self.add_camera()
-        self._p3d_cam._set_tiles()
+        self._pbr_cam._set_tiles()
 
     # --- Lighting helpers ---
     def add_light(self,
                   ambient: tuple[float, float, float] = (0.2, 0.2, 0.25),
                   dir_dir: tuple[float, float, float] = (0.4, -0.6, -0.7),
                   dir_col: tuple[float, float, float] = (1.0, 1.0, 1.0),
-                  strength: float = 1.0) -> P3DLight:
-        self._p3d_light = P3DLight(self, ambient=ambient, dir_dir=dir_dir, dir_col=dir_col, strength=strength)
-        return self._p3d_light
+                  strength: float = 1.0) -> PBRLight:
+        self._pbr_light = PBRLight(self, ambient=ambient, dir_dir=dir_dir, dir_col=dir_col, strength=strength)
+        return self._pbr_light
 
     def set_key(self, key, value):
         self.keys[key] = value
@@ -165,7 +165,7 @@ class P3DRenderer(ShowBase):
     def update_camera(self, task):
         dt = self.clock.get_dt()
 
-        position_k3 = self._p3d_cam.get_eye()
+        position_k3 = self._pbr_cam.get_eye()
         if self.keys["w"]:
             position_k3[:, 1] += self._camera_speed * dt
         if self.keys["s"]:
@@ -179,7 +179,7 @@ class P3DRenderer(ShowBase):
         if self.keys["x"]:
             position_k3[:,2] -= self._camera_speed * dt
         position_k3 = position_k3.reshape(-1, 3)
-        self._p3d_cam.set_eye(position_k3)
+        self._pbr_cam.set_eye(position_k3)
 
         if self.mouseWatcherNode.hasMouse():
             md = self.win.getPointer(0)
@@ -190,7 +190,7 @@ class P3DRenderer(ShowBase):
             
             # Only rotate camera while left mouse button is held
             if self.mouseWatcherNode.is_button_down(MouseButton.one()):
-                fwd_k3 = self._p3d_cam.get_forward()
+                fwd_k3 = self._pbr_cam.get_forward()
                 # TODO: implement with hpr
                 fwd_x, fwd_y, fwd_z = fwd_k3[:,0], fwd_k3[:,1], fwd_k3[:,2]
                 new_fwd = torch.stack([
@@ -198,8 +198,8 @@ class P3DRenderer(ShowBase):
                     fwd_y,
                     fwd_z + float(mouse_dy) * self._mouse_sensitivity,
                 ], dim=1)
-                new_fwd = self._p3d_cam._normalize(new_fwd)
-                self._p3d_cam.set_forward(new_fwd)
+                new_fwd = self._pbr_cam._normalize(new_fwd)
+                self._pbr_cam.set_forward(new_fwd)
 
             # self.win.movePointer(0, int(self.win.getXSize() // 2), int(self.win.getYSize() // 2))
 
@@ -222,7 +222,7 @@ class P3DRenderer(ShowBase):
         tile_h = self.cfg.tile_resolution[1]
         w = max(1, cols * tile_w)
         h = max(1, rows * tile_h)
-        self.offscreen_buffer = self.win.makeTextureBuffer('p3d-screen-rt', w, h)
+        self.offscreen_buffer = self.win.makeTextureBuffer('pbr-screen-rt', w, h)
         self.offscreen_tex = self.offscreen_buffer.getTexture()
         if self.offscreen_tex is not None:
             self.offscreen_tex.setKeepRamImage(True)
@@ -360,8 +360,8 @@ class P3DRenderer(ShowBase):
 
     def setup_environment(self) -> None:
 
-        if self._p3d_cam is None:
+        if self._pbr_cam is None:
             self.add_camera() # TODO: consider removing this
         if getattr(self.cfg, 'interactive', False):
-            self.taskMgr.add(self._interactive_step_with_task, 'p3d-interactive-step')
+            self.taskMgr.add(self._interactive_step_with_task, 'pbr-interactive-step')
         self._init_frame_grabber()

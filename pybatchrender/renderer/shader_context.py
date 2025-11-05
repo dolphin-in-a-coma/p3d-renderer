@@ -7,7 +7,7 @@ from direct.showbase.ShowBase import ShowBase
 from abc import ABC, abstractmethod
 
 
-class P3DShaderContext(ABC):
+class PBRShaderContext(ABC):
     def __init__(self, 
                 showbase: ShowBase,
                 backend: Literal["instanced", "loop"] = "instanced" # TODO: Add class var for backend
@@ -85,12 +85,12 @@ class P3DShaderContext(ABC):
 
 
     def _set_shader_input(self, input_name: str, value) -> None:
-        """Set a shader input parameter. If this object has an np, set it there; otherwise, broadcast to all registered P3DNodes on ShowBase."""
+        """Set a shader input parameter. If this object has an np, set it there; otherwise, broadcast to all registered PBRNodes on ShowBase."""
         np_model = getattr(self, 'np', None)
         if np_model is not None:
             np_model.setShaderInput(input_name, value)
             return
-        for node_obj in getattr(self.base, '_p3d_nodes', []):
+        for node_obj in getattr(self.base, '_pbr_nodes', []):
             np_node = getattr(node_obj, 'np', None)
             if np_node is None:
                 continue

@@ -3,19 +3,19 @@ import numpy as np
 from panda3d.core import loadPrcFileData
 
 try:
-    from .renderer.renderer import P3DRenderer
-    from .renderer.shader_context import P3DShaderContext
+    from .renderer.renderer import PBRRenderer
+    from .renderer.shader_context import PBRShaderContext
 except ImportError:
     # Fallback when run as a script (no package parent)
-    from renderer.renderer import P3DRenderer
-    from renderer.shader_context import P3DShaderContext
+    from renderer.renderer import PBRRenderer
+    from renderer.shader_context import PBRShaderContext
 
 
 # # Set GL version and FPS meter
 # loadPrcFileData('', 'gl-version 3 2')
 # loadPrcFileData('', 'show-frame-rate-meter 1\n')
 
-class Demo(P3DRenderer):
+class Demo(PBRRenderer):
     def __init__(self):
         num_scenes = 1024
         instances_per_scene = 3
@@ -45,7 +45,7 @@ class Demo(P3DRenderer):
 
         # Static random rotations per-instance (H, P, R in radians)
         self.rot_hpr = rng.uniform(-np.pi, np.pi, size=(self.B, 3)).astype(np.float32)
-        self.R3 = P3DShaderContext._rotation_mats_from_hpr(self.rot_hpr)
+        self.R3 = PBRShaderContext._rotation_mats_from_hpr(self.rot_hpr)
         # Angular velocities for dynamic rotation (radians/sec per axis)
         self.ang_vel = rng.uniform(-0.8, 0.8, size=(self.B, 3)).astype(np.float32)
         
@@ -80,7 +80,7 @@ class Demo(P3DRenderer):
 
         # Build transform matrices (dynamic rotation * uniform scale + translation)
         hpr_t = (self.rot_hpr + self.ang_vel * t).astype(np.float32, copy=False)
-        R3_t = P3DShaderContext._rotation_mats_from_hpr(hpr_t)
+        R3_t = PBRShaderContext._rotation_mats_from_hpr(hpr_t)
         mats = np.zeros((self.B, 4, 4), np.float32)
         mats[:, 3, 3] = 1.0
         mats[:, 0:3, 0:3] = R3_t * s[:, 0][:, None, None]

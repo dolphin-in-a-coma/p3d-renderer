@@ -7,19 +7,19 @@ from torchrl.data.tensor_specs import Composite, Unbounded, Categorical
 
 # Optional renderer / config (kept optional to avoid hard deps when not rendering)
 try:
-    from .config import P3DConfig
-    from .renderer.renderer import P3DRenderer
+    from .config import PBRConfig
+    from .renderer.renderer import PBRRenderer
 except ImportError:
     # Fallback when run as a script (no package parent)
-    from config import P3DConfig
-    from renderer.renderer import P3DRenderer
+    from config import PBRConfig
+    from renderer.renderer import PBRRenderer
 
-class P3DEnv(EnvBase, ABC):
+class PBREnv(EnvBase, ABC):
 
     def __init__(
         self,
-        renderer: P3DRenderer,
-        cfg: P3DConfig | None = None,
+        renderer: PBRRenderer,
+        cfg: PBRConfig | None = None,
         device: str | torch.device = "cpu",
         batch_size: torch.Size = torch.Size([128]),
         **kwargs,
@@ -90,7 +90,7 @@ class P3DEnv(EnvBase, ABC):
 
     def render_pixels(self, obs: torch.Tensor | None = None) -> torch.Tensor:
         if self._renderer is None:
-            raise RuntimeError("Renderer is not initialized. Construct env with a renderer and pass it to P3DEnv.")
+            raise RuntimeError("Renderer is not initialized. Construct env with a renderer and pass it to PBREnv.")
         return self._renderer.step(obs)
 
     def save_batch_examples(
@@ -199,14 +199,14 @@ class P3DEnv(EnvBase, ABC):
     def make_parallel_env(
         cls,
         *,
-        config: "P3DConfig",
-        renderer_cls: type["P3DRenderer"],
+        config: "PBRConfig",
+        renderer_cls: type["PBRRenderer"],
         num_workers: int,
         mp_start_method: str = "spawn",
         shared_memory: bool = True,
     ) -> ParallelEnv:
         """
-        Generic factory to create a TorchRL ParallelEnv for any P3DEnv subclass.
+        Generic factory to create a TorchRL ParallelEnv for any PBREnv subclass.
         """
         import multiprocessing as mp
 
@@ -237,16 +237,16 @@ class P3DEnv(EnvBase, ABC):
 
     @staticmethod
     def _make_env_worker(
-        env_cls: type["P3DEnv"],
-        renderer_cls: type["P3DRenderer"],
-        config: "P3DConfig",
+        env_cls: type["PBREnv"],
+        renderer_cls: type["PBRRenderer"],
+        config: "PBRConfig",
         worker_index: int,
         num_workers: int,
-    ) -> "P3DEnv":
+    ) -> "PBREnv":
         """
-        Spawn-safe worker factory to build a P3DEnv subclass instance with its renderer.
+        Spawn-safe worker factory to build a PBREnv subclass instance with its renderer.
         """
-        cfg = P3DConfig.from_config(config, worker_index=worker_index, num_workers=num_workers)
+        cfg = PBRConfig.from_config(config, worker_index=worker_index, num_workers=num_workers)
         cfg.worker_index = worker_index
         try:
             if getattr(cfg, "seed", None) is not None:
@@ -279,7 +279,7 @@ class P3DEnv(EnvBase, ABC):
 
     # def render_pixels(self, sync_from_obs: bool = True) -> torch.Tensor:
     #     if self._renderer is None:
-    #         raise RuntimeError("Renderer is not initialized. Construct env with a renderer and pass it to P3DEnv.")
+    #         raise RuntimeError("Renderer is not initialized. Construct env with a renderer and pass it to PBREnv.")
     #     # if sync_from_obs:
     #     #     try:
     #     #         obs = getattr(self, "_last_obs", None)

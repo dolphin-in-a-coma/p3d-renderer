@@ -7,18 +7,18 @@ from tensordict import TensorDict
 from torchrl.envs import EnvBase
 
 try:
-    from .renderer.renderer import P3DRenderer
-    from .config import P3DConfig
-    from .env import P3DEnv
+    from .renderer.renderer import PBRRenderer
+    from .config import PBRConfig
+    from .env import PBREnv
 except ImportError:
     # Fallback when run as a script (no package parent)
-    from renderer.renderer import P3DRenderer
-    from config import P3DConfig
-    from env import P3DEnv
+    from renderer.renderer import PBRRenderer
+    from config import PBRConfig
+    from env import PBREnv
 
 
 @dataclass
-class CartPoleConfig(P3DConfig):
+class CartPoleConfig(PBRConfig):
     # TorchRL env defaults
     direct_obs_dim: int | None = 4
     action_n: int | None = 2
@@ -60,8 +60,8 @@ class CartPoleConfig(P3DConfig):
     worker_index: int = 0
     num_workers: int = 1
 
-class CartPoleRenderer(P3DRenderer):
-    def __init__(self, cfg: P3DConfig | dict | None = None):
+class CartPoleRenderer(PBRRenderer):
+    def __init__(self, cfg: PBRConfig | dict | None = None):
         super().__init__(cfg)
         instances_per_scene = 1
         # Geometry sizes/colors
@@ -106,8 +106,8 @@ class CartPoleRenderer(P3DRenderer):
         self.pole_theta = torch.zeros_like(self.cart_x_pos)
 
         self.add_camera()
-        self._p3d_cam.set_positions(torch.tensor([5, 5, 2], dtype=torch.float32))
-        self._p3d_cam.look_at(torch.tensor([0, 0, 0], dtype=torch.float32))
+        self._pbr_cam.set_positions(torch.tensor([5, 5, 2], dtype=torch.float32))
+        self._pbr_cam.look_at(torch.tensor([0, 0, 0], dtype=torch.float32))
         self.add_light()
         self.setup_environment()
 
@@ -136,7 +136,7 @@ class CartPoleRenderer(P3DRenderer):
         self.pole_hpr[:, :, 1:2] = self.pole_theta
         self.pole.set_hprs(self.pole_hpr)
 
-class CartPoleEnv(P3DEnv):
+class CartPoleEnv(PBREnv):
     def __init__(self, 
                 renderer: CartPoleRenderer,
                 cfg: CartPoleConfig | dict | None = None,

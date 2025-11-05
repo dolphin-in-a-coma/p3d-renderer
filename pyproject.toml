@@ -6,7 +6,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "p3d-gym"
+name = "pybatchrender"
 version = "0.1.0"
 description = "Convenience utilities to build fast-rendered 3D environments with Panda3D"
 readme = "README.md"
@@ -15,7 +15,7 @@ license = { file = "LICENSE" }
 authors = [
   { name = "Evgenii Rudakov" }
 ]
-keywords = ["panda3d", "graphics", "rendering", "rl", "torchrl", "gym"]
+keywords = ["panda3d", "graphics", "rendering", "rl", "torchrl", "renderer"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -53,17 +53,17 @@ cuda = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/evgeruda/p3d-gym"
-Repository = "https://github.com/evgeruda/p3d-gym"
+Homepage = "https://github.com/evgeruda/pybatchrender"
+Repository = "https://github.com/evgeruda/pybatchrender"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["p3d_gym", "p3d_gym.*"]
+include = ["pybatchrender", "pybatchrender.*"]
 
 [tool.setuptools.package-data]
-p3d_gym = [
+pybatchrender = [
   "shaders/*.frag",
   "shaders/*.vert",
 ]
