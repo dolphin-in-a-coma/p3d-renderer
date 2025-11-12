@@ -1,5 +1,6 @@
 import math
 import re
+from collections.abc import Sequence
 from typing import Literal
 import torch
 
@@ -80,7 +81,8 @@ class PBRRenderer(ShowBase):
             instances_per_scene: int,
             texture: Texture | str | bool | None = None,
             model_pivot_relative_point: tuple[float, float, float] | None = None,
-            model_scale: tuple[float, float, float] = (10.0, 1.0, 1.0),
+            model_scale: float | Sequence[float] | None = None,
+            model_scale_units: Literal["relative", "absolute"] = "relative",
             positions: 'torch.Tensor | None' = None,
             hprs: 'torch.Tensor | None' = None,
             scales: 'torch.Tensor | None' = None,
@@ -96,6 +98,7 @@ class PBRRenderer(ShowBase):
                         texture=texture,
                         model_pivot_relative_point=model_pivot_relative_point,
                         model_scale=model_scale,
+                        model_scale_units=model_scale_units,
                         positions=positions, 
                         hprs=hprs,
                         scales=scales,
