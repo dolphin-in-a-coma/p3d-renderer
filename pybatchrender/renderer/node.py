@@ -1,5 +1,6 @@
 import torch
 
+from collections.abc import Sequence
 from typing import Literal
 
 from panda3d.core import Texture, OmniBoundingVolume, NodePath
@@ -16,7 +17,8 @@ class PBRNode(PBRShaderContext):
                 instances_per_scene: int = 1,
                 texture: Texture | str | bool | None = None,
                 model_pivot_relative_point: tuple[float, float, float] | None = None,
-                model_scale: tuple[float, float, float] = (1.0, 1.0, 1.0),
+                model_scale: float | Sequence[float] | None = None,
+                model_scale_units: Literal["relative", "absolute"] = "relative",
                 positions: torch.Tensor | None = None,
                 hprs: torch.Tensor | None = None,
                 scales: torch.Tensor | None = None,
@@ -43,6 +45,7 @@ class PBRNode(PBRShaderContext):
         self.buf_instances = self.instances_per_scene if self.shared_across else self.total_instances
         self.model_pivot_relative_point = model_pivot_relative_point
         self.model_scale = model_scale
+        self.model_scale_units = model_scale_units
         
         # TODO: remove for now
         # parent_np = None
@@ -55,7 +58,7 @@ class PBRNode(PBRShaderContext):
         
         if model_path:
             self.np = self.base.loader.loadModel(model_path)
-            self.np.setScale(*model_scale)
+            self._apply_model_scale()
             self.np.clearModelNodes(); self.np.flattenStrong()
             self.np.reparentTo(self.base.render) # NOTE: all nodes are children of the base render
             self.pivot_to_rel(self.model_pivot_relative_point)
@@ -170,6 +173,77 @@ class PBRNode(PBRShaderContext):
         self.scale_b11 = s.reshape(-1, 1, 1).to(torch.float32)
         self.rot3_b33 = self.rot3_b33 / self.scale_b11
         self._upload_current_transforms()
+
+    def _coerce_model_scale(self) -> tuple[tuple[float, float, float], bool] | None:
+        """Return coerced scale tuple and whether it was originally uniform."""
+        scale = self.model_scale
+        if scale is None:
+            return None
+
+        if isinstance(scale, (int, float)):
+            value = float(scale)
+            return ((value, value, value), True)
+
+        if isinstance(scale, Sequence):
+            seq = tuple(float(v) for v in scale)
+            if len(seq) == 0:
+                raise ValueError("model_scale sequence cannot be empty")
+            if len(seq) == 1:
+                value = seq[0]
+                return ((value, value, value), True)
+            if len(seq) != 3:
+                raise ValueError("model_scale sequence must have length 1 or 3")
+            return (seq, False)
+
+        raise TypeError("model_scale must be a number, a sequence of length 1 or 3, or None")
+
+    def _apply_model_scale(self) -> None:
+        if not getattr(self, 'has_geometry', True):
+            # Nothing to scale
+            return
+
+        coerced = self._coerce_model_scale()
+        if coerced is None:
+            return
+
+        scale_values, is_uniform = coerced
+        if self.model_scale_units == "relative":
+            self.np.setScale(*scale_values)
+            return
+
+        if self.model_scale_units != "absolute":
+            raise ValueError(f"Unknown model_scale_units '{self.model_scale_units}'")
+
+        bounds = self.np.getTightBounds()
+        if not bounds:
+            # Fall back to relative scaling if bounds are unavailable
+            self.np.setScale(*scale_values)
+            return
+
+        min_pt, max_pt = bounds
+        if min_pt is None or max_pt is None:
+            self.np.setScale(*scale_values)
+            return
+        dims = (
+            float(max_pt[0] - min_pt[0]),
+            float(max_pt[1] - min_pt[1]),
+            float(max_pt[2] - min_pt[2]),
+        )
+        longest = max(max(dims), 1e-8)
+
+        if is_uniform:
+            target = scale_values[0]
+            factor = target / longest
+            self.np.setScale(factor, factor, factor)
+            return
+
+        scale_components: list[float] = []
+        for target_dim, source_dim in zip(scale_values, dims):
+            denom = source_dim if abs(source_dim) >= 1e-8 else longest
+            if abs(denom) < 1e-8:
+                denom = 1.0
+            scale_components.append(target_dim / denom)
+        self.np.setScale(*scale_components)
 
     def _register_self(self) -> None:
         # Ensure registry exists and add this node once
